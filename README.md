@@ -1,15 +1,15 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://embedcollective.dev/logo-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="https://embedcollective.dev/logo-light.svg">
-  <img alt="EmbedCollective" src="https://embedcollective.dev/logo-dark.svg" width="420">
+  <source media="(prefers-color-scheme: dark)" srcset="https://embedkombinat.github.io/embed-kombinat.github.io/logo-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="https://embedkombinat.github.io/embed-kombinat.github.io/logo-light.svg">
+  <img alt="EmbedKombinat" src="https://embedkombinat.github.io/embed-kombinat.github.io/logo-dark.svg" width="420">
 </picture>
 
 <br/>
 <br/>
 
-**Distributed annotation worker for [EmbedCollective](https://embedcollective.dev)**
+**Distributed annotation worker for [EmbedKombinat](https://embedkombinat.github.io/embed-kombinat.github.io/index.html)**
 
 Run local LLM inference on your hardware to label query-document pairs for open embedding model training.
 
@@ -22,13 +22,13 @@ Run local LLM inference on your hardware to label query-document pairs for open 
 
 ---
 
-[Website](https://embedcollective.dev) | [Getting Started](#getting-started) | [Models](#supported-models) | [Leaderboard](#-annotator-leaderboard) | [Contributing](#contributing)
+[Website](https://embedkombinat.github.io/embed-kombinat.github.io/index.html) | [Getting Started](#getting-started) | [Models](#supported-models) | [Leaderboard](#-annotator-leaderboard) | [Contributing](#contributing)
 
 </div>
 
 ## What is this?
 
-The **annotator** is a headless labeling worker that runs on contributor hardware. It claims batches of unlabeled (query, document) pairs from the [kombinat](https://embedcollective.dev) server, scores relevance using a local LLM, and submits annotations back — all without sending your data to any third-party API.
+The **annotator** is a headless labeling worker that runs on contributor hardware. It claims batches of unlabeled (query, document) pairs from the [kombinat](https://embedkombinat.github.io/embed-kombinat.github.io/index.html) server, scores relevance using a local LLM, and submits annotations back — all without sending your data to any third-party API.
 
 ```
 ┌─────────────┐     claim batch     ┌─────────────┐
@@ -71,11 +71,6 @@ pip install annotator[cpu]
 ```bash
 # First time — authenticates via GitHub, then starts labeling
 annotator run
-
-# Or step by step
-annotator login
-annotator status
-annotator run --batch-size 200
 ```
 
 ### Docker (NVIDIA)
@@ -131,19 +126,6 @@ Options (run):
   --dry-run                    Resolve hardware & model, then exit
 ```
 
-## Configuration
-
-All settings via environment variables (prefix `ANNOTATOR_`) or `.env` file:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ANNOTATOR_KOMBINAT_URL` | `https://api.embedcollective.dev` | Server endpoint |
-| `ANNOTATOR_BATCH_SIZE` | `100` | Pairs per batch |
-| `ANNOTATOR_CHUNK_SIZE` | `50` | Pairs per submission |
-| `ANNOTATOR_GPU_MEMORY_UTILIZATION` | `0.9` | GPU memory fraction |
-| `ANNOTATOR_MAX_MODEL_LEN` | `4096` | Context length |
-| `ANNOTATOR_MAX_OUTPUT_TOKENS` | `256` | Max response tokens |
-
 ## Annotator Leaderboard
 
 Top contributors by total annotations submitted. Updated in real-time by the kombinat server.
@@ -167,7 +149,7 @@ Top contributors by total annotations submitted. Updated in real-time by the kom
 
 ```bash
 # Clone and install dev dependencies
-git clone https://github.com/embed-collective/annotator.git
+git clone https://github.com/embedkombinat/annotator.git
 cd annotator
 pip install -e ".[dev]"
 
@@ -185,6 +167,6 @@ Apache 2.0 — see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-Built with care by the [EmbedCollective](https://embedcollective.dev) community.
+Built with care by the [EmbedKombinat](https://embedkombinat.github.io/embed-kombinat.github.io/index.html) community.
 
 </div>

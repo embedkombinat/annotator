@@ -26,7 +26,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    kombinat_url: str = "https://api.embedcollective.dev"
+    kombinat_url: str = "https://api.embedkombinat.dev"
     github_client_id: str = "PLACEHOLDER_CLIENT_ID"
 
     batch_size: int = 100

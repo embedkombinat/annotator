@@ -1,6 +1,6 @@
 services:
   annotator:
-    image: ghcr.io/embedcollective/annotator:latest
+    image: ghcr.io/embedkombinat/annotator:latest
     deploy:
       resources:
         reservations:

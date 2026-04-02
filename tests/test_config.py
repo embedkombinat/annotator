@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 class TestSettings:
     def test_default_settings(self) -> None:
         s = Settings()
-        assert s.kombinat_url == "https://api.embedcollective.dev"
+        assert s.kombinat_url == "https://api.embedkombinat.dev"
         assert s.batch_size == 100
         assert s.chunk_size == 50
         assert s.gpu_memory_utilization == 0.9

@@ -24,13 +24,13 @@ app = typer.Typer(
 
 
 def _print_banner(console: Console) -> None:
-    """Print the EmbedCollective branded header."""
+    """Print the EmbedKombinat branded header."""
     logo = Text()
     logo.append("    /\\  /\\  /\\\n", style="bold")
     logo.append("   /  \\/  \\/  \\\n", style="bold")
     logo.append("  /    \\   \\   \\\n", style="bold")
 
-    title = f"embed collective \u00b7 annotator v{__version__}"
+    title = f"embed kombinat \u00b7 annotator v{__version__}"
     console.print()
     console.print(logo, end="")
     console.print(Panel(title, style=f"bold {TEAL}", width=len(title) + 6))

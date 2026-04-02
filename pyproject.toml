@@ -1,7 +1,7 @@
 [project]
 name = "annotator"
 version = "0.1.0"
-description = "Distributed annotation worker for EmbedCollective"
+description = "Distributed annotation worker for EmbedKombinat"
 requires-python = ">=3.12"
 dependencies = [
     "typer>=0.15",
