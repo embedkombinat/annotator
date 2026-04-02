@@ -11,3 +11,5 @@ build/
 .env
 *.egg
 .DS_Store
+uv.lock
+annotator-prd.md
