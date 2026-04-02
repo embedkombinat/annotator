@@ -1,0 +1,15 @@
+services:
+  annotator:
+    image: ghcr.io/embedcollective/annotator:latest
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ~/.annotator:/root/.annotator
+    shm_size: '4gb'
+    stdin_open: true
+    tty: true
