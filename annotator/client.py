@@ -52,13 +52,20 @@ class AnnotationResult(BaseModel):
     accepted: int
     rejected: int
     honeypot_accuracy: float | None = None
+    pairs_verified: int = 0
+    contributor_tokens: dict[str, int] = {}
 
 
 class ContributorProfile(BaseModel):
     id: str
     github_username: str
+    github_avatar_url: str | None = None
     total_annotations: int = 0
     reputation_score: float = 0.0
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    created_at: datetime | None = None
+    last_seen_at: datetime | None = None
 
 
 class NoPairsBackoff:
@@ -110,7 +117,7 @@ class KombinatClient:
 
     def release_batch(self, batch_id: str) -> None:
         """Release an unfinished batch back to the pool."""
-        self._request_with_retry("POST", f"/v1/batches/{batch_id}/release")
+        self._request_with_retry("DELETE", f"/v1/batches/{batch_id}")
 
     def get_profile(self) -> ContributorProfile:
         """Get the contributor's profile and stats."""

@@ -42,14 +42,12 @@ PROFILE_RESPONSE = {
 def _make_submission() -> AnnotationSubmission:
     return AnnotationSubmission(
         batch_id="batch-123",
+        model_id="Qwen/Qwen2.5-7B-Instruct-AWQ",
+        quantization="awq",
         annotations=[
             AnnotationPayload(
                 pair_id="p1",
                 label=2,
-                reasoning="relevant",
-                model_id="Qwen/Qwen2.5-7B-Instruct-AWQ",
-                quantization="awq",
-                backend="vllm",
                 input_tokens=100,
                 output_tokens=20,
                 raw_response_hash="sha256:abc",
@@ -128,9 +126,9 @@ class TestSubmitAnnotations:
 class TestReleaseBatch:
     def test_success(self, httpx_mock: HTTPXMock) -> None:
         httpx_mock.add_response(
-            method="POST",
-            url=f"{BASE_URL}/v1/batches/batch-123/release",
-            json={},
+            method="DELETE",
+            url=f"{BASE_URL}/v1/batches/batch-123",
+            status_code=204,
         )
         client = KombinatClient(BASE_URL, TOKEN)
         client.release_batch("batch-123")  # Should not raise
