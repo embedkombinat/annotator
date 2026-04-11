@@ -9,12 +9,19 @@ if TYPE_CHECKING:
     from annotator.resolver import ResolvedRuntime
 
 
-def create_engine(runtime: ResolvedRuntime, gpu_memory_utilization: float = 0.9) -> BaseEngine:
+def create_engine(
+    runtime: ResolvedRuntime,
+    gpu_memory_utilization: float = 0.9,
+    max_model_len: int = 4096,
+    max_output_tokens: int = 256,
+) -> BaseEngine:
     """Create the appropriate engine for the resolved runtime."""
     if runtime.backend == "vllm":
         from annotator.engine.vllm import VLLMEngine
 
-        return VLLMEngine(runtime.model_spec, gpu_memory_utilization)
+        return VLLMEngine(
+            runtime.model_spec, gpu_memory_utilization, max_model_len, max_output_tokens
+        )
     elif runtime.backend == "mlx":
         from annotator.engine.mlx import MLXEngine
 

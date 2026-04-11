@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import signal
 import sys
@@ -89,7 +90,12 @@ class AnnotatorRunner:
         self._console.print(f"  [{TEAL}]\u2713[/{TEAL}] Using: {runtime.backend} backend")
 
         # 3. Create and load engine
-        engine = create_engine(runtime, gpu_memory_utilization)
+        engine = create_engine(
+            runtime,
+            gpu_memory_utilization,
+            self._settings.max_model_len,
+            self._settings.max_output_tokens,
+        )
         try:
             self._console.print("  \u2193 Loading model...")
             engine.load()
@@ -182,26 +188,30 @@ class AnnotatorRunner:
                             f"\n  [{TEAL}]\u2713[/{TEAL}] Dry run complete. "
                             f"Processed {len(outputs)} pair(s), no submission."
                         )
-                        self._active_batch_id = None
+                        self._release_active_batch()
                         return ExitCode.SUCCESS
 
             # Single submission for the whole batch
             batch_labeled = 0
-            if all_outputs and not self._shutdown_requested:
+            if all_outputs:
                 submission = _build_submission(batch.batch_id, all_outputs, engine_info)
                 result = self._client.submit_annotations(submission)
                 batch_labeled = len(all_outputs)
                 for out in all_outputs:
                     total_input_tokens += out.input_tokens
                     total_output_tokens += out.output_tokens
-                logger.info("Batch submitted: %d accepted, %d rejected", result.accepted, result.rejected)
+                logger.info(
+                    "Batch submitted: %d accepted, %d rejected",
+                    result.accepted,
+                    result.rejected,
+                )
+                self._active_batch_id = None
 
             total_pairs += batch_labeled
             self._console.print(
                 f"    [{TEAL}]\u2713[/{TEAL}] Batch {batch_num}: "
                 f"{batch_labeled}/{pairs_in_batch} pairs submitted"
             )
-            self._active_batch_id = None
 
         # Shutdown summary
         self._console.print(
@@ -210,14 +220,15 @@ class AnnotatorRunner:
         )
         self._console.print("  Run again anytime with the same command.\n")
 
-        # Release active batch if any
-        if self._active_batch_id and self._client:
-            import contextlib
+        self._release_active_batch()
+        return ExitCode.SUCCESS
 
+    def _release_active_batch(self) -> None:
+        """Best-effort release of any in-flight batch back to the pool."""
+        if self._active_batch_id and self._client:
             with contextlib.suppress(Exception):
                 self._client.release_batch(self._active_batch_id)
-
-        return ExitCode.SUCCESS
+            self._active_batch_id = None
 
     def _install_signal_handlers(self) -> None:
         def handler(signum: int, frame: object) -> None:

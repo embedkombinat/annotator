@@ -99,7 +99,7 @@ class TestRunnerBasicLoop:
             code = runner.run()
 
         assert code == ExitCode.SUCCESS
-        assert mock_client.submit_annotations.call_count == 2  # 4 pairs, chunk_size=2
+        assert mock_client.submit_annotations.call_count == 1  # single batch submission
 
     def test_chunks_batch(self, tmp_annotator_home: Path) -> None:
         settings = _make_settings(tmp_annotator_home)
@@ -128,7 +128,7 @@ class TestRunnerBasicLoop:
             code = runner.run()
 
         assert code == ExitCode.SUCCESS
-        assert mock_client.submit_annotations.call_count == 3
+        assert mock_client.submit_annotations.call_count == 1  # single batch submission
 
     def test_skips_failed_pairs(self, tmp_annotator_home: Path) -> None:
         settings = _make_settings(tmp_annotator_home)
