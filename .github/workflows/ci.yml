@@ -18,8 +18,29 @@ jobs:
       - run: uv run mypy annotator/
       - run: uv run pytest -v --tb=short
 
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-annotator
+          path: coverage.xml
+
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # The vllm/vllm-openai base image is ~5.3 GB and doesn't fit on the default
+      # GitHub runner once the preinstalled toolchain is there — ~14 GB of unused
+      # SDKs need to be cleared before `docker build` can extract the layers.
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
+
       - run: docker build -t annotator-test .

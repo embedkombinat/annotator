@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+
+from pydantic import BaseModel
 
 PROMPT_VERSION = "v1"
 
@@ -38,8 +39,7 @@ ANNOTATION_SCHEMA: dict[str, object] = {
 ANNOTATION_SCHEMA_JSON = json.dumps(ANNOTATION_SCHEMA)
 
 
-@dataclass
-class LLMResponse:
+class LLMResponse(BaseModel):
     """Validated LLM output."""
 
     label: int

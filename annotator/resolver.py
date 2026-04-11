@@ -5,13 +5,18 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
-from dataclasses import dataclass
+
+from pydantic import BaseModel, ConfigDict
 
 from annotator.errors import ResolverError
 
 
-@dataclass(frozen=True)
-class ModelSpec:
+class ModelSpec(BaseModel):
+    # protected_namespaces=() suppresses pydantic's "model_" field-name warning —
+    # model_id is domain-intended here (a HuggingFace model identifier), not a
+    # collision with pydantic's own `model_*` methods.
+    model_config = ConfigDict(frozen=True, protected_namespaces=())
+
     model_id: str
     quantization: str | None
     min_vram_gb: float
@@ -20,8 +25,9 @@ class ModelSpec:
     revision: str
 
 
-@dataclass
-class ResolvedRuntime:
+class ResolvedRuntime(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     model_spec: ModelSpec
     gpu_name: str | None
     gpu_vram_gb: float | None
@@ -30,18 +36,74 @@ class ResolvedRuntime:
 
 REGISTRY: dict[str, list[ModelSpec]] = {
     "vllm": [
-        ModelSpec("Qwen/Qwen2.5-7B-Instruct", None, 18.0, 14.0, "vllm", "main"),
-        ModelSpec("Qwen/Qwen2.5-7B-Instruct-AWQ", "awq", 8.0, 4.5, "vllm", "main"),
-        ModelSpec("Qwen/Qwen2.5-3B-Instruct-AWQ", "awq", 4.0, 2.0, "vllm", "main"),
+        ModelSpec(
+            model_id="Qwen/Qwen2.5-7B-Instruct",
+            quantization=None,
+            min_vram_gb=18.0,
+            download_gb=14.0,
+            backend="vllm",
+            revision="main",
+        ),
+        ModelSpec(
+            model_id="Qwen/Qwen2.5-7B-Instruct-AWQ",
+            quantization="awq",
+            min_vram_gb=8.0,
+            download_gb=4.5,
+            backend="vllm",
+            revision="main",
+        ),
+        ModelSpec(
+            model_id="Qwen/Qwen2.5-3B-Instruct-AWQ",
+            quantization="awq",
+            min_vram_gb=4.0,
+            download_gb=2.0,
+            backend="vllm",
+            revision="main",
+        ),
     ],
     "mlx": [
-        ModelSpec("mlx-community/Qwen2.5-7B-Instruct-4bit", "4bit", 6.0, 4.0, "mlx", "main"),
-        ModelSpec("mlx-community/Qwen2.5-3B-Instruct-4bit", "4bit", 4.0, 2.0, "mlx", "main"),
-        ModelSpec("mlx-community/Qwen2.5-1.5B-Instruct-4bit", "4bit", 2.0, 1.0, "mlx", "main"),
+        ModelSpec(
+            model_id="mlx-community/Qwen2.5-7B-Instruct-4bit",
+            quantization="4bit",
+            min_vram_gb=6.0,
+            download_gb=4.0,
+            backend="mlx",
+            revision="main",
+        ),
+        ModelSpec(
+            model_id="mlx-community/Qwen2.5-3B-Instruct-4bit",
+            quantization="4bit",
+            min_vram_gb=4.0,
+            download_gb=2.0,
+            backend="mlx",
+            revision="main",
+        ),
+        ModelSpec(
+            model_id="mlx-community/Qwen2.5-1.5B-Instruct-4bit",
+            quantization="4bit",
+            min_vram_gb=2.0,
+            download_gb=1.0,
+            backend="mlx",
+            revision="main",
+        ),
     ],
     "llama_cpp": [
-        ModelSpec("Qwen/Qwen2.5-3B-Instruct-GGUF", "Q4_K_M", 0, 2.0, "llama_cpp", "main"),
-        ModelSpec("Qwen/Qwen2.5-1.5B-Instruct-GGUF", "Q4_K_M", 0, 1.0, "llama_cpp", "main"),
+        ModelSpec(
+            model_id="Qwen/Qwen2.5-3B-Instruct-GGUF",
+            quantization="Q4_K_M",
+            min_vram_gb=0,
+            download_gb=2.0,
+            backend="llama_cpp",
+            revision="main",
+        ),
+        ModelSpec(
+            model_id="Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+            quantization="Q4_K_M",
+            min_vram_gb=0,
+            download_gb=1.0,
+            backend="llama_cpp",
+            revision="main",
+        ),
     ],
 }
 

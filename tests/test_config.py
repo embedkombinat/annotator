@@ -9,7 +9,11 @@ if TYPE_CHECKING:
 
 
 class TestSettings:
-    def test_default_settings(self) -> None:
+    def test_default_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Don't let the repo-local .env shadow the code defaults under test.
+        # We clear env_file on the class; other tests that rely on a real .env
+        # aren't affected because monkeypatch restores it.
+        monkeypatch.setitem(Settings.model_config, "env_file", None)
         s = Settings()
         assert s.kombinat_url == "https://api.embedkombinat.dev"
         assert s.batch_size == 100

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+
+from pydantic import BaseModel
 
 
-@dataclass
-class LabelingInput:
+class LabelingInput(BaseModel):
     """A single (query, document) pair to label."""
 
     pair_id: str
@@ -15,8 +15,7 @@ class LabelingInput:
     doc_text: str
 
 
-@dataclass
-class LabelingOutput:
+class LabelingOutput(BaseModel):
     """LLM response + engine metadata. Ready for submission to kombinat."""
 
     pair_id: str
@@ -27,8 +26,7 @@ class LabelingOutput:
     raw_response_hash: str
 
 
-@dataclass
-class EngineInfo:
+class EngineInfo(BaseModel):
     """Model metadata — submitted to kombinat with every annotation."""
 
     model_id: str

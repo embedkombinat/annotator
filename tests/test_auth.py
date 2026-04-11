@@ -151,9 +151,7 @@ class TestCallbackServer:
         server_thread.start()
 
         try:
-            resp = httpx.get(
-                f"http://127.0.0.1:{port}/callback?code=test-code&state=test-state"
-            )
+            resp = httpx.get(f"http://127.0.0.1:{port}/callback?code=test-code&state=test-state")
             assert resp.status_code == 200
             assert "Authentication successful" in resp.text
             assert auth_event.is_set()
@@ -242,9 +240,9 @@ class TestLogin:
         with (
             patch("annotator.auth.webbrowser.open"),  # do nothing
             patch("annotator.auth.LOGIN_TIMEOUT", 0.1),
+            pytest.raises(AuthError, match="timed out"),
         ):
-            with pytest.raises(AuthError, match="timed out"):
-                login(settings, console)
+            login(settings, console)
 
     def test_login_state_mismatch(self, tmp_annotator_home: Path) -> None:
         settings = _make_settings(tmp_annotator_home)
@@ -259,6 +257,8 @@ class TestLogin:
             # Send back a WRONG state
             httpx.get(f"{redirect_uri}?code=gh-code-123&state=WRONG-STATE")
 
-        with patch("annotator.auth.webbrowser.open", side_effect=fake_browser_open):
-            with pytest.raises(AuthError, match="state mismatch"):
-                login(settings, console)
+        with (
+            patch("annotator.auth.webbrowser.open", side_effect=fake_browser_open),
+            pytest.raises(AuthError, match="state mismatch"),
+        ):
+            login(settings, console)

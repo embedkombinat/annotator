@@ -23,9 +23,11 @@ app = typer.Typer(
 def _print_banner(console: Console) -> None:
     """Print the EmbedKombinat branded header."""
     logo = Text()
-    logo.append("    /\\  /\\  /\\\n", style="bold")
-    logo.append("   /  \\/  \\/  \\\n", style="bold")
-    logo.append("  /    \\   \\   \\\n", style="bold")
+    logo.append(" EEEEE  K   K\n", style=f"bold {TEAL}")
+    logo.append(" E      K  K\n", style=f"bold {TEAL}")
+    logo.append(" EEEE   KKK\n", style=f"bold {TEAL}")
+    logo.append(" E      K  K\n", style=f"bold {TEAL}")
+    logo.append(" EEEEE  K   K\n", style=f"bold {TEAL}")
 
     title = f"embed kombinat \u00b7 annotator v{__version__}"
     console.print()
