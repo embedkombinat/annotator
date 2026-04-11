@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import signal
 import sys
@@ -187,12 +188,7 @@ class AnnotatorRunner:
                             f"\n  [{TEAL}]\u2713[/{TEAL}] Dry run complete. "
                             f"Processed {len(outputs)} pair(s), no submission."
                         )
-                        if self._active_batch_id and self._client:
-                            import contextlib
-
-                            with contextlib.suppress(Exception):
-                                self._client.release_batch(self._active_batch_id)
-                        self._active_batch_id = None
+                        self._release_active_batch()
                         return ExitCode.SUCCESS
 
             # Single submission for the whole batch
@@ -206,14 +202,17 @@ class AnnotatorRunner:
                     total_output_tokens += out.output_tokens
                 logger.info(
                     "Batch submitted: %d accepted, %d rejected",
-                    result.accepted, result.rejected,
+                    result.accepted,
+                    result.rejected,
                 )
+                self._active_batch_id = None
 
             total_pairs += batch_labeled
             self._console.print(
                 f"    [{TEAL}]\u2713[/{TEAL}] Batch {batch_num}: "
                 f"{batch_labeled}/{pairs_in_batch} pairs submitted"
             )
+
         # Shutdown summary
         self._console.print(
             f"\n  [{TEAL}]\u2713[/{TEAL}] Session total: {total_pairs} pairs "
@@ -221,15 +220,15 @@ class AnnotatorRunner:
         )
         self._console.print("  Run again anytime with the same command.\n")
 
-        # Release active batch if any
-        if self._active_batch_id and self._client:
-            import contextlib
+        self._release_active_batch()
+        return ExitCode.SUCCESS
 
+    def _release_active_batch(self) -> None:
+        """Best-effort release of any in-flight batch back to the pool."""
+        if self._active_batch_id and self._client:
             with contextlib.suppress(Exception):
                 self._client.release_batch(self._active_batch_id)
             self._active_batch_id = None
-
-        return ExitCode.SUCCESS
 
     def _install_signal_handlers(self) -> None:
         def handler(signum: int, frame: object) -> None:
