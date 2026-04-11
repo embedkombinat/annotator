@@ -34,7 +34,7 @@ jobs:
       # GitHub runner once the preinstalled toolchain is there — ~14 GB of unused
       # SDKs need to be cleared before `docker build` can extract the layers.
       - name: Free disk space
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@v1.3.1
         with:
           tool-cache: true
           android: true
