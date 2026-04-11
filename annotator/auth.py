@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 import httpx
 from pydantic import BaseModel
 
+from annotator import TEAL
 from annotator.errors import AuthError
 
 if TYPE_CHECKING:
@@ -184,7 +185,7 @@ def login(settings: Settings, console: Console) -> AuthToken:
         save_token(token, settings.annotator_home)
 
         console.print(
-            f"  [#00E5B0]\u2713[/#00E5B0] Authenticated as {token.contributor.github_username}"
+            f"  [{TEAL}]\u2713[/{TEAL}] Authenticated as {token.contributor.github_username}"
         )
         return token
     finally:

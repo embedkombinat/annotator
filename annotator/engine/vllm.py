@@ -73,15 +73,14 @@ class VLLMEngine(BaseEngine):
         )
 
         results: list[LabelingOutput] = []
-        for pair, output in zip(pairs, outputs, strict=True):
+        for idx, (pair, output) in enumerate(zip(pairs, outputs, strict=True)):
             raw_text: str = output.outputs[0].text
             llm_response = parse_llm_response(raw_text)
             final_output = output
 
             if llm_response is None:
-                # Retry once for this pair
                 retry_output = self.llm.chat(
-                    messages=[conversations[pairs.index(pair)]],
+                    messages=[conversations[idx]],
                     sampling_params=sampling_params,
                     use_tqdm=False,
                 )

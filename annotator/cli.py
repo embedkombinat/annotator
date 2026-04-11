@@ -9,11 +9,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
-from annotator import __version__
+from annotator import AMBER, TEAL, __version__
 from annotator.config import ExitCode, Settings
-
-TEAL = "#00E5B0"
-AMBER = "#c05d3b"
 
 app = typer.Typer(
     name="annotator",

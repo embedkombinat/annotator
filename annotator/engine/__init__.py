@@ -25,7 +25,7 @@ def create_engine(
     elif runtime.backend == "mlx":
         from annotator.engine.mlx import MLXEngine
 
-        return MLXEngine(runtime.model_spec)
+        return MLXEngine(runtime.model_spec, max_output_tokens=max_output_tokens)
     elif runtime.backend == "llama_cpp":
         from annotator.engine.llama_cpp import LlamaCppEngine
 

@@ -17,8 +17,9 @@ if TYPE_CHECKING:
 
 
 class MLXEngine(BaseEngine):
-    def __init__(self, model_spec: ModelSpec) -> None:
+    def __init__(self, model_spec: ModelSpec, max_output_tokens: int = 256) -> None:
         self.model_spec = model_spec
+        self.max_output_tokens = max_output_tokens
         self._model: Any = None
         self._tokenizer: Any = None
 
@@ -47,17 +48,16 @@ class MLXEngine(BaseEngine):
                 self._model,
                 self._tokenizer,
                 prompt=prompt,
-                max_tokens=256,
+                max_tokens=self.max_output_tokens,
             )
             llm_response = parse_llm_response(raw_text)
 
             if llm_response is None:
-                # Retry once
                 raw_text = generate(
                     self._model,
                     self._tokenizer,
                     prompt=prompt,
-                    max_tokens=256,
+                    max_tokens=self.max_output_tokens,
                 )
                 llm_response = parse_llm_response(raw_text)
 

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
-from annotator import auth
+from annotator import AMBER, TEAL, auth
 from annotator.client import (
     AnnotationPayload,
     AnnotationSubmission,
@@ -20,6 +20,7 @@ from annotator.client import (
 )
 from annotator.config import ExitCode
 from annotator.engine import create_engine
+from annotator.engine.base import LabelingInput
 from annotator.errors import AuthError, KombinatError, ResolverError
 from annotator.resolver import resolve
 
@@ -27,12 +28,9 @@ if TYPE_CHECKING:
     from rich.console import Console
 
     from annotator.config import Settings
-    from annotator.engine.base import BaseEngine, EngineInfo, LabelingInput, LabelingOutput
+    from annotator.engine.base import BaseEngine, EngineInfo, LabelingOutput
 
 logger = logging.getLogger(__name__)
-
-TEAL = "#00E5B0"
-AMBER = "#c05d3b"
 
 
 class AnnotatorRunner:
@@ -54,10 +52,8 @@ class AnnotatorRunner:
         dry_run: bool = False,
     ) -> int:
         """Main entry point. Returns an exit code."""
-        # Install signal handlers
         self._install_signal_handlers()
 
-        # 1. Auth check
         token = auth.load_token(self._settings.annotator_home)
         if token is None:
             try:
@@ -70,7 +66,6 @@ class AnnotatorRunner:
             f"  [{TEAL}]\u2713[/{TEAL}] Authenticated as {token.contributor.github_username}"
         )
 
-        # 2. Resolve runtime
         try:
             runtime = resolve(
                 override_model=model_override,
@@ -89,7 +84,6 @@ class AnnotatorRunner:
         self._console.print(f"  [{TEAL}]\u2713[/{TEAL}] Best fit: {runtime.model_spec.model_id}")
         self._console.print(f"  [{TEAL}]\u2713[/{TEAL}] Using: {runtime.backend} backend")
 
-        # 3. Create and load engine
         engine = create_engine(
             runtime,
             gpu_memory_utilization,
@@ -105,10 +99,8 @@ class AnnotatorRunner:
 
         self._console.print(f"  [{TEAL}]\u2713[/{TEAL}] Model loaded. Starting labeling.\n")
 
-        # 4. Create client
         self._client = KombinatClient(token.kombinat_url, token.access_token)
 
-        # 5. Main loop
         try:
             return self._main_loop(engine, batch_size, dry_run)
         except AuthError:
@@ -132,7 +124,6 @@ class AnnotatorRunner:
         engine_info = engine.info()
 
         while not self._shutdown_requested:
-            # Claim batch
             batch = self._client.claim_batch(batch_size)
             if batch is None:
                 wait = backoff.wait_duration()
@@ -175,8 +166,11 @@ class AnnotatorRunner:
                         break
 
                     chunk_end = min(chunk_start + chunk_size, pairs_in_batch)
-                    chunk_pairs: list[LabelingInput] = [
-                        _pair_to_input(p) for p in batch.pairs[chunk_start:chunk_end]
+                    chunk_pairs = [
+                        LabelingInput(
+                            pair_id=p.pair_id, query_text=p.query_text, doc_text=p.doc_text
+                        )
+                        for p in batch.pairs[chunk_start:chunk_end]
                     ]
 
                     outputs: list[LabelingOutput] = engine.label_batch(chunk_pairs)
@@ -242,16 +236,6 @@ class AnnotatorRunner:
 
         signal.signal(signal.SIGINT, handler)
         signal.signal(signal.SIGTERM, handler)
-
-
-def _pair_to_input(pair: object) -> LabelingInput:
-    from annotator.engine.base import LabelingInput as LabInput
-
-    return LabInput(
-        pair_id=pair.pair_id,  # type: ignore[attr-defined]
-        query_text=pair.query_text,  # type: ignore[attr-defined]
-        doc_text=pair.doc_text,  # type: ignore[attr-defined]
-    )
 
 
 def _build_submission(
