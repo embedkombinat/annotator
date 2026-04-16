@@ -57,20 +57,26 @@ Each pair gets a relevance score from **0** (not relevant) to **3** (highly rele
 
 ```bash
 # NVIDIA GPU
-pip install annotator[vllm]
+uv pip install -e ".[vllm]"
 
 # Apple Silicon (M1/M2/M3/M4)
-pip install annotator[mlx]
+uv pip install -e ".[mlx]"
 
 # CPU-only
-pip install annotator[cpu]
+uv pip install -e ".[cpu]"
+```
+
+### Authenticate
+
+```bash
+uv run annotator login
 ```
 
 ### Run
 
 ```bash
-# First time — authenticates via GitHub, then starts labeling
-annotator run
+# Starts labeling (will prompt login if not authenticated)
+uv run annotator run
 ```
 
 ### Docker (NVIDIA)
@@ -143,7 +149,7 @@ Top contributors by total annotations submitted. Updated in real-time by the kom
 | 9 | @batch_queen | 31,204 | 2x RTX 3080 | 0.90 | 17 days |
 | 10 | @open_source_larry | 24,889 | M1 Pro 16GB | 0.88 | 45 days |
 
-> Want to see your name here? `pip install annotator[mlx] && annotator run`
+> Want to see your name here? `uv pip install -e ".[mlx]" && uv run annotator run`
 
 ## Contributing
 
@@ -151,12 +157,12 @@ Top contributors by total annotations submitted. Updated in real-time by the kom
 # Clone and install dev dependencies
 git clone https://github.com/embedkombinat/annotator.git
 cd annotator
-pip install -e ".[dev]"
+uv pip install -e ".[dev]"
 
 # Run checks
-ruff check .
-mypy .
-pytest
+uv run ruff check .
+uv run mypy .
+uv run pytest
 ```
 
 ## License

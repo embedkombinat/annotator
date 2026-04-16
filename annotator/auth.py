@@ -118,12 +118,64 @@ def _make_callback_handler(auth_event: threading.Event) -> type[BaseHTTPRequestH
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
-            body = (
-                "<html><body style='font-family:sans-serif;text-align:center;padding:60px'>"
-                "<h2>Authentication successful!</h2>"
-                "<p>You can close this tab and return to the terminal.</p>"
-                "</body></html>"
-            )
+            body = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Embed Kombinat — Authenticated</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    background: #0a0a0a;
+    color: #e0e0e0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+  .card {
+    text-align: center;
+    border: 1px solid #2dd4bf33;
+    border-radius: 12px;
+    padding: 48px 56px;
+    background: #111;
+    box-shadow: 0 0 40px #2dd4bf11;
+  }
+  .logo {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    line-height: 1.3;
+    white-space: pre;
+    color: #2dd4bf;
+    margin-bottom: 24px;
+  }
+  h2 {
+    font-size: 20px;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 8px;
+  }
+  p {
+    font-size: 14px;
+    color: #888;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">EEEEE  K   K
+E      K  K
+EEEE   KKK
+E      K  K
+EEEEE  K   K</div>
+  <h2>Authentication successful</h2>
+  <p>You can close this tab and return to the terminal.</p>
+</div>
+</body>
+</html>"""
             self.wfile.write(body.encode())
             auth_event.set()
 

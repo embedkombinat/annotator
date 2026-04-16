@@ -91,6 +91,9 @@ class NoPairsBackoff:
         return self._consecutive_empty
 
 
+SUBMIT_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
+
+
 class KombinatClient:
     def __init__(self, base_url: str, access_token: str) -> None:
         self.http = httpx.Client(
@@ -107,11 +110,13 @@ class KombinatClient:
         return BatchResponse.model_validate(resp.json())
 
     def submit_annotations(self, submission: AnnotationSubmission) -> AnnotationResult:
-        """Submit a chunk of annotations."""
+        """Submit a batch of annotations. Uses a longer timeout since processing
+        100 annotations with honeypot checks can be slow over Railway's proxy."""
         resp = self._request_with_retry(
             "POST",
             "/v1/annotations",
             json=submission.model_dump(),
+            timeout=SUBMIT_TIMEOUT,
         )
         return AnnotationResult.model_validate(resp.json())
 
