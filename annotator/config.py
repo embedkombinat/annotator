@@ -26,8 +26,8 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    kombinat_url: str = "https://api.embedkombinat.dev"
-    github_client_id: str = "PLACEHOLDER_CLIENT_ID"
+    kombinat_url: str = "https://kombinat-production.up.railway.app"
+    github_client_id: str = "Ov23li2YT5nNcqNeDHNz"
 
     batch_size: int = 100
     chunk_size: int = 50
