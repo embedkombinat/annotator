@@ -15,7 +15,7 @@ class TestSettings:
         # aren't affected because monkeypatch restores it.
         monkeypatch.setitem(Settings.model_config, "env_file", None)
         s = Settings()
-        assert s.kombinat_url == "https://api.embedkombinat.dev"
+        assert s.kombinat_url == "https://kombinat-production.up.railway.app"
         assert s.batch_size == 100
         assert s.chunk_size == 50
         assert s.gpu_memory_utilization == 0.9
