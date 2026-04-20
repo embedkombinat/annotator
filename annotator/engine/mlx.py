@@ -30,7 +30,7 @@ class MLXEngine(BaseEngine):
         self._model, self._tokenizer = result[0], result[1]
 
     def label_batch(self, pairs: list[LabelingInput]) -> list[LabelingOutput]:
-        from mlx_lm import generate  # type: ignore[import-not-found]
+        from mlx_lm import generate
 
         results: list[LabelingOutput] = []
 
