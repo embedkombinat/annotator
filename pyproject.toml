@@ -1,8 +1,26 @@
 [project]
-name = "annotator"
-version = "0.1.0"
+name = "test-ann"
+dynamic = ["version"]
 description = "Distributed annotation worker for EmbedKombinat"
+readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.12"
+authors = [
+    { name = "EmbedKombinat" },
+]
+keywords = ["annotation", "labeling", "llm", "embedding", "distributed"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
 dependencies = [
     "typer>=0.15",
     "httpx>=0.28",
@@ -25,6 +43,17 @@ dev = [
     "mypy>=1.13",
     "ruff>=0.8",
 ]
+
+[project.urls]
+Homepage = "https://embedkombinat.github.io/embed-kombinat.github.io/index.html"
+Repository = "https://github.com/embedkombinat/annotator"
+Issues = "https://github.com/embedkombinat/annotator/issues"
+
+[tool.hatch.version]
+path = "annotator/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["annotator"]
 
 [tool.ruff]
 target-version = "py312"

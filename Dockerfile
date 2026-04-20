@@ -1,9 +1,6 @@
 FROM vllm/vllm-openai:latest
 
-WORKDIR /app
-COPY pyproject.toml .
-COPY annotator/ annotator/
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir test-ann[vllm]
 
 ENV HF_HOME=/root/.annotator/models
 ENTRYPOINT ["annotator"]

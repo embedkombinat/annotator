@@ -22,7 +22,7 @@ class ExitCode(IntEnum):
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="ANNOTATOR_",
-        env_file=Path(__file__).parent.parent / ".env",
+        env_file=Path.cwd() / ".env",
         extra="ignore",
     )
 

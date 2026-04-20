@@ -15,7 +15,7 @@ Run local LLM inference on your hardware to label query-document pairs for open 
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-3776AB?logo=python&logoColor=white)](https://python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![PyPI version](https://img.shields.io/pypi/v/annotator?color=blue)](https://pypi.org/project/annotator/)
+[![PyPI version](https://img.shields.io/pypi/v/test-ann?color=blue)](https://pypi.org/project/test-ann/)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)](Dockerfile)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![mypy: strict](https://img.shields.io/badge/mypy-strict-blue.svg)](http://mypy-lang.org/)
@@ -57,26 +57,32 @@ Each pair gets a relevance score from **0** (not relevant) to **3** (highly rele
 
 ```bash
 # NVIDIA GPU
-uv pip install -e ".[vllm]"
+pip install test-ann[vllm]
 
 # Apple Silicon (M1/M2/M3/M4)
-uv pip install -e ".[mlx]"
+pip install test-ann[mlx]
 
 # CPU-only
-uv pip install -e ".[cpu]"
+pip install test-ann[cpu]
+```
+
+Or run without installing:
+
+```bash
+uvx --from "test-ann[mlx]" annotator run
 ```
 
 ### Authenticate
 
 ```bash
-uv run annotator login
+annotator login
 ```
 
 ### Run
 
 ```bash
 # Starts labeling (will prompt login if not authenticated)
-uv run annotator run
+annotator run
 ```
 
 ### Docker (NVIDIA)
@@ -149,7 +155,7 @@ Top contributors by total annotations submitted. Updated in real-time by the kom
 | 9 | @batch_queen | 31,204 | 2x RTX 3080 | 0.90 | 17 days |
 | 10 | @open_source_larry | 24,889 | M1 Pro 16GB | 0.88 | 45 days |
 
-> Want to see your name here? `uv pip install -e ".[mlx]" && uv run annotator run`
+> Want to see your name here? `pip install test-ann[mlx] && annotator run`
 
 ## Contributing
 
@@ -157,12 +163,12 @@ Top contributors by total annotations submitted. Updated in real-time by the kom
 # Clone and install dev dependencies
 git clone https://github.com/embedkombinat/annotator.git
 cd annotator
-uv pip install -e ".[dev]"
+pip install -e ".[dev,mlx]"  # or .[dev,vllm] for NVIDIA
 
 # Run checks
-uv run ruff check .
-uv run mypy .
-uv run pytest
+ruff check .
+mypy annotator/
+pytest
 ```
 
 ## License
