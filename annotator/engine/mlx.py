@@ -24,13 +24,13 @@ class MLXEngine(BaseEngine):
         self._tokenizer: Any = None
 
     def load(self) -> None:
-        from mlx_lm import load  # noqa: PLC0415
+        from mlx_lm import load  # type: ignore[import-not-found]  # noqa: PLC0415
 
         result = load(self.model_spec.model_id)
         self._model, self._tokenizer = result[0], result[1]
 
     def label_batch(self, pairs: list[LabelingInput]) -> list[LabelingOutput]:
-        from mlx_lm import generate
+        from mlx_lm import generate  # type: ignore[import-not-found]
 
         results: list[LabelingOutput] = []
 
