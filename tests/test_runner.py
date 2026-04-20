@@ -20,7 +20,6 @@ def _make_settings(home: Path) -> Settings:
     return Settings(
         annotator_home=home,
         kombinat_url="http://test.local",
-        github_client_id="test-id",
         chunk_size=2,
     )
 

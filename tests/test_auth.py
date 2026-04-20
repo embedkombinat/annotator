@@ -16,6 +16,7 @@ from annotator.auth import (
     _create_callback_server,
     delete_token,
     exchange_code,
+    fetch_client_id,
     load_token,
     login,
     save_token,
@@ -179,10 +180,51 @@ class TestCallbackServer:
 def _make_settings(home: Path) -> MagicMock:
     """Create a mock Settings object for login tests."""
     settings = MagicMock()
-    settings.github_client_id = "test-client-id"
     settings.kombinat_url = "http://test-kombinat.local"
     settings.annotator_home = home
     return settings
+
+
+class TestFetchClientId:
+    def test_fetch_client_id_success(self) -> None:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"client_id": "gh-client-xyz"}
+        with patch("annotator.auth.httpx.Client") as mock_client_cls:
+            mock_client_cls.return_value.__enter__ = lambda s: s
+            mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
+            mock_client_cls.return_value.get.return_value = mock_resp
+            assert fetch_client_id("http://test.local") == "gh-client-xyz"
+
+    def test_fetch_client_id_non_200_raises(self) -> None:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.text = "boom"
+        with patch("annotator.auth.httpx.Client") as mock_client_cls:
+            mock_client_cls.return_value.__enter__ = lambda s: s
+            mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
+            mock_client_cls.return_value.get.return_value = mock_resp
+            with pytest.raises(AuthError, match="500"):
+                fetch_client_id("http://test.local")
+
+    def test_fetch_client_id_empty_raises(self) -> None:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"client_id": ""}
+        with patch("annotator.auth.httpx.Client") as mock_client_cls:
+            mock_client_cls.return_value.__enter__ = lambda s: s
+            mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
+            mock_client_cls.return_value.get.return_value = mock_resp
+            with pytest.raises(AuthError, match="misconfigured"):
+                fetch_client_id("http://test.local")
+
+    def test_fetch_client_id_unreachable_raises(self) -> None:
+        with patch("annotator.auth.httpx.Client") as mock_client_cls:
+            mock_client_cls.return_value.__enter__ = lambda s: s
+            mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
+            mock_client_cls.return_value.get.side_effect = httpx.ConnectError("refused")
+            with pytest.raises(AuthError, match="could not reach kombinat"):
+                fetch_client_id("http://test.local")
 
 
 class TestLogin:
@@ -212,9 +254,13 @@ class TestLogin:
             # Hit the callback server like GitHub would
             httpx.get(f"{redirect_uri}?code=gh-code-123&state={state}")
 
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = mock_token_data
+        post_resp = MagicMock()
+        post_resp.status_code = 200
+        post_resp.json.return_value = mock_token_data
+
+        get_resp = MagicMock()
+        get_resp.status_code = 200
+        get_resp.json.return_value = {"client_id": "test-client-id"}
 
         with (
             patch("annotator.auth.webbrowser.open", side_effect=fake_browser_open),
@@ -222,7 +268,8 @@ class TestLogin:
         ):
             mock_client_cls.return_value.__enter__ = lambda s: s
             mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
-            mock_client_cls.return_value.post.return_value = mock_resp
+            mock_client_cls.return_value.post.return_value = post_resp
+            mock_client_cls.return_value.get.return_value = get_resp
 
             token = login(settings, console)
 
@@ -238,6 +285,7 @@ class TestLogin:
         console = MagicMock()
 
         with (
+            patch("annotator.auth.fetch_client_id", return_value="test-client-id"),
             patch("annotator.auth.webbrowser.open"),  # do nothing
             patch("annotator.auth.LOGIN_TIMEOUT", 0.1),
             pytest.raises(AuthError, match="timed out"),
@@ -258,6 +306,7 @@ class TestLogin:
             httpx.get(f"{redirect_uri}?code=gh-code-123&state=WRONG-STATE")
 
         with (
+            patch("annotator.auth.fetch_client_id", return_value="test-client-id"),
             patch("annotator.auth.webbrowser.open", side_effect=fake_browser_open),
             pytest.raises(AuthError, match="state mismatch"),
         ):

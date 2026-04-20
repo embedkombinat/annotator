@@ -24,7 +24,7 @@ class MLXEngine(BaseEngine):
         self._tokenizer: Any = None
 
     def load(self) -> None:
-        from mlx_lm import load  # type: ignore[import-not-found]  # noqa: PLC0415
+        from mlx_lm import load  # type: ignore[import-not-found, unused-ignore]  # noqa: PLC0415
 
         result = load(self.model_spec.model_id)
         self._model, self._tokenizer = result[0], result[1]

@@ -28,5 +28,4 @@ def tmp_annotator_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     home.mkdir()
     monkeypatch.setenv("ANNOTATOR_ANNOTATOR_HOME", str(home))
     monkeypatch.setenv("ANNOTATOR_KOMBINAT_URL", "http://test-kombinat.local")
-    monkeypatch.setenv("ANNOTATOR_GITHUB_CLIENT_ID", "test-client-id")
     return home

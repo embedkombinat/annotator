@@ -77,6 +77,21 @@ def delete_token(home: Path) -> None:
         path.unlink()
 
 
+def fetch_client_id(kombinat_url: str) -> str:
+    """Fetch the public GitHub OAuth client_id from kombinat."""
+    try:
+        with httpx.Client() as client:
+            resp = client.get(f"{kombinat_url}/v1/auth/config", timeout=10.0)
+    except httpx.HTTPError as exc:
+        raise AuthError(f"could not reach kombinat at {kombinat_url}: {exc}") from exc
+    if resp.status_code != 200:
+        raise AuthError(f"kombinat auth config fetch failed: {resp.status_code} {resp.text}")
+    client_id = resp.json().get("client_id")
+    if not isinstance(client_id, str) or not client_id:
+        raise AuthError("kombinat returned empty client_id — server is misconfigured")
+    return client_id
+
+
 def exchange_code(code: str, state: str, kombinat_url: str) -> AuthToken:
     """Exchange a GitHub OAuth code+state for a kombinat JWT."""
     with httpx.Client() as client:
@@ -197,6 +212,8 @@ def login(settings: Settings, console: Console) -> AuthToken:
     """Run the full login flow: open browser -> local server captures callback -> exchange."""
     console.print("  No credentials found. Starting login...\n")
 
+    client_id = fetch_client_id(settings.kombinat_url)
+
     state = secrets.token_urlsafe(16)
     auth_event = threading.Event()
     server = _create_callback_server(auth_event)
@@ -209,7 +226,7 @@ def login(settings: Settings, console: Console) -> AuthToken:
         redirect_uri = f"http://localhost:{port}/callback"
         authorize_url = (
             f"{GITHUB_AUTHORIZE_URL}"
-            f"?client_id={settings.github_client_id}"
+            f"?client_id={client_id}"
             f"&redirect_uri={urllib.parse.quote(redirect_uri, safe='')}"
             f"&state={state}"
             f"&scope=read:user"
