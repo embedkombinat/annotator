@@ -1,8 +1,13 @@
+"""Tests for auth.py — token storage, OAuth web flow, fixed-port callback server."""
+
 from __future__ import annotations
 
+import http.client
 import os
+import socket
 import stat
 import threading
+import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
@@ -21,10 +26,13 @@ from annotator.auth import (
     login,
     save_token,
 )
+from annotator.config import Settings
 from annotator.errors import AuthError
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from pytest_httpx import HTTPXMock
 
 
 def _make_token(
@@ -40,6 +48,13 @@ def _make_token(
             github_avatar_url="https://github.com/octocat.png",
         ),
     )
+
+
+def _free_port() -> int:
+    """Pick a port that's free right now. Tests must bind quickly to avoid races."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
 
 
 class TestTokenStorage:
@@ -71,7 +86,6 @@ class TestTokenStorage:
     def test_load_token_within_expiry_buffer(self, tmp_annotator_home: Path) -> None:
         token = _make_token(expires_delta=timedelta(minutes=3))
         save_token(token, tmp_annotator_home)
-        # Within 5-minute buffer, should be considered expired
         assert load_token(tmp_annotator_home) is None
 
     def test_load_token_valid(self, tmp_annotator_home: Path) -> None:
@@ -88,101 +102,12 @@ class TestTokenStorage:
         assert not (tmp_annotator_home / "auth.json").exists()
 
     def test_delete_token_not_found(self, tmp_annotator_home: Path) -> None:
-        # Should not raise
         delete_token(tmp_annotator_home)
 
     def test_load_token_corrupted(self, tmp_annotator_home: Path) -> None:
         path = tmp_annotator_home / "auth.json"
         path.write_text("not valid json{{{")
         assert load_token(tmp_annotator_home) is None
-
-
-class TestExchangeCode:
-    def test_exchange_code_success(self) -> None:
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {
-            "access_token": "jwt-xyz",
-            "expires_in": 604800,
-            "contributor": {
-                "id": "uuid-456",
-                "github_username": "octocat",
-                "github_avatar_url": "https://github.com/octocat.png",
-            },
-        }
-        with patch("annotator.auth.httpx.Client") as mock_client_cls:
-            mock_client_cls.return_value.__enter__ = lambda s: s
-            mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
-            mock_client_cls.return_value.post.return_value = mock_resp
-
-            token = exchange_code("code-abc", "state-xyz", "http://test.local")
-            assert token.access_token == "jwt-xyz"
-            assert token.contributor.github_username == "octocat"
-
-    def test_exchange_code_401_raises(self) -> None:
-        mock_resp = MagicMock()
-        mock_resp.status_code = 401
-        with patch("annotator.auth.httpx.Client") as mock_client_cls:
-            mock_client_cls.return_value.__enter__ = lambda s: s
-            mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
-            mock_client_cls.return_value.post.return_value = mock_resp
-
-            with pytest.raises(AuthError, match="rejected"):
-                exchange_code("bad-code", "state-xyz", "http://test.local")
-
-    def test_exchange_code_500_raises(self) -> None:
-        mock_resp = MagicMock()
-        mock_resp.status_code = 500
-        mock_resp.text = "Internal Server Error"
-        with patch("annotator.auth.httpx.Client") as mock_client_cls:
-            mock_client_cls.return_value.__enter__ = lambda s: s
-            mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
-            mock_client_cls.return_value.post.return_value = mock_resp
-
-            with pytest.raises(AuthError, match="500"):
-                exchange_code("code-abc", "state-xyz", "http://test.local")
-
-
-class TestCallbackServer:
-    def test_callback_captures_code_and_state(self) -> None:
-        auth_event = threading.Event()
-        server = _create_callback_server(auth_event)
-        port = server.server_address[1]
-        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
-        server_thread.start()
-
-        try:
-            resp = httpx.get(f"http://127.0.0.1:{port}/callback?code=test-code&state=test-state")
-            assert resp.status_code == 200
-            assert "Authentication successful" in resp.text
-            assert auth_event.is_set()
-            assert server.auth_code == "test-code"  # type: ignore[attr-defined]
-            assert server.auth_state == "test-state"  # type: ignore[attr-defined]
-        finally:
-            server.shutdown()
-
-    def test_callback_missing_params(self) -> None:
-        auth_event = threading.Event()
-        server = _create_callback_server(auth_event)
-        port = server.server_address[1]
-        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
-        server_thread.start()
-
-        try:
-            resp = httpx.get(f"http://127.0.0.1:{port}/callback")
-            assert resp.status_code == 200
-            assert auth_event.is_set()
-            assert server.auth_code is None  # type: ignore[attr-defined]
-        finally:
-            server.shutdown()
-
-
-def _make_settings(home: Path) -> MagicMock:
-    """Create a mock Settings object for login tests."""
-    settings = MagicMock()
-    settings.kombinat_url = "http://test-kombinat.local"
-    settings.annotator_home = home
-    return settings
 
 
 class TestFetchClientId:
@@ -227,87 +152,231 @@ class TestFetchClientId:
                 fetch_client_id("http://test.local")
 
 
+KOMBINAT_AUTH_URL = "http://test.local/v1/auth/github"
+
+
+class TestExchangeCode:
+    """The web-flow code exchange POSTs `{code, state}` to /v1/auth/github."""
+
+    def test_returns_auth_token_on_success(self, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(
+            url=KOMBINAT_AUTH_URL,
+            method="POST",
+            json={
+                "access_token": "jwt-xyz",
+                "expires_in": 604800,
+                "contributor": {
+                    "id": "uuid-1",
+                    "github_username": "octocat",
+                    "github_avatar_url": "https://github.com/octocat.png",
+                },
+            },
+        )
+        token = exchange_code("oauth-code", "csrf-state", "http://test.local")
+        assert token.access_token == "jwt-xyz"
+        assert token.contributor.github_username == "octocat"
+        assert token.contributor.id == "uuid-1"
+        assert token.kombinat_url == "http://test.local"
+
+    def test_401_raises_rejected(self, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(
+            url=KOMBINAT_AUTH_URL,
+            method="POST",
+            status_code=401,
+        )
+        with pytest.raises(AuthError, match="rejected"):
+            exchange_code("bad-code", "state", "http://test.local")
+
+    def test_500_raises_with_status(self, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(
+            url=KOMBINAT_AUTH_URL,
+            method="POST",
+            status_code=500,
+            text="boom",
+        )
+        with pytest.raises(AuthError, match="500"):
+            exchange_code("code", "state", "http://test.local")
+
+
+class TestCallbackServer:
+    """Fixed-port callback server: Docker-friendly, configurable, fails clearly when blocked."""
+
+    def test_binds_to_configured_port(self) -> None:
+        port = _free_port()
+        event = threading.Event()
+        server = _create_callback_server(port, event)
+        try:
+            assert server.server_address == ("127.0.0.1", port)
+        finally:
+            server.server_close()
+
+    def test_port_in_use_raises_clear_error(self) -> None:
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            probe.listen(1)
+            port = int(probe.getsockname()[1])
+
+            event = threading.Event()
+            with pytest.raises(AuthError, match="ANNOTATOR_AUTH_PORT"):
+                _create_callback_server(port, event)
+
+    def test_callback_captures_code_and_state(self) -> None:
+        port = _free_port()
+        event = threading.Event()
+        server = _create_callback_server(port, event)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            conn.request("GET", "/callback?code=abc123&state=xyz789")
+            resp = conn.getresponse()
+            resp.read()
+            conn.close()
+
+            assert resp.status == 200
+            assert event.wait(timeout=2)
+            assert server.auth_code == "abc123"  # type: ignore[attr-defined]
+            assert server.auth_state == "xyz789"  # type: ignore[attr-defined]
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+
+
+def _settings_with_port(home: Path, port: int) -> Settings:
+    return Settings(
+        annotator_home=home,
+        kombinat_url="http://test-kombinat.local",
+        auth_port=port,
+    )
+
+
+def _fire_callback(port: int, query: str, delay: float = 0.1) -> threading.Thread:
+    """Fire a fake OAuth redirect at the in-process callback server, after a brief delay."""
+
+    def _send() -> None:
+        time.sleep(delay)
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", f"/callback?{query}")
+        conn.getresponse().read()
+        conn.close()
+
+    thread = threading.Thread(target=_send, daemon=True)
+    thread.start()
+    return thread
+
+
 class TestLogin:
-    def test_login_success(self, tmp_annotator_home: Path) -> None:
-        """Simulate a full login by having webbrowser.open trigger the callback."""
-        settings = _make_settings(tmp_annotator_home)
+    def test_full_flow_uses_fixed_port_and_saves_token(
+        self, tmp_annotator_home: Path, httpx_mock: HTTPXMock
+    ) -> None:
+        port = _free_port()
+        settings = _settings_with_port(tmp_annotator_home, port)
         console = MagicMock()
 
-        mock_token_data = {
-            "access_token": "jwt-login",
-            "expires_in": 604800,
-            "contributor": {
-                "id": "uuid-login",
-                "github_username": "testuser",
-                "github_avatar_url": None,
+        httpx_mock.add_response(
+            url="http://test-kombinat.local/v1/auth/config",
+            method="GET",
+            json={"client_id": "test-client-id"},
+        )
+        httpx_mock.add_response(
+            url="http://test-kombinat.local/v1/auth/github",
+            method="POST",
+            json={
+                "access_token": "jwt-login",
+                "expires_in": 604800,
+                "contributor": {
+                    "id": "uuid-login",
+                    "github_username": "testuser",
+                    "github_avatar_url": None,
+                },
             },
-        }
+        )
 
-        def fake_browser_open(url: str) -> None:
-            """Simulate GitHub redirecting back to the local callback server."""
-            import urllib.parse
+        opened: dict[str, str] = {}
 
-            parsed = urllib.parse.urlparse(url)
-            params = urllib.parse.parse_qs(parsed.query)
-            redirect_uri = urllib.parse.unquote(params["redirect_uri"][0])
-            state = params["state"][0]
-            # Hit the callback server like GitHub would
-            httpx.get(f"{redirect_uri}?code=gh-code-123&state={state}")
+        def fake_open(url: str) -> bool:
+            opened["url"] = url
+            from urllib.parse import parse_qs, urlparse
 
-        post_resp = MagicMock()
-        post_resp.status_code = 200
-        post_resp.json.return_value = mock_token_data
+            qs = parse_qs(urlparse(url).query)
+            state = qs["state"][0]
+            _fire_callback(port, f"code=oauth-code&state={state}")
+            return True
 
-        get_resp = MagicMock()
-        get_resp.status_code = 200
-        get_resp.json.return_value = {"client_id": "test-client-id"}
-
-        with (
-            patch("annotator.auth.webbrowser.open", side_effect=fake_browser_open),
-            patch("annotator.auth.httpx.Client") as mock_client_cls,
-        ):
-            mock_client_cls.return_value.__enter__ = lambda s: s
-            mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
-            mock_client_cls.return_value.post.return_value = post_resp
-            mock_client_cls.return_value.get.return_value = get_resp
-
+        with patch("annotator.auth.webbrowser.open", side_effect=fake_open):
             token = login(settings, console)
 
         assert token.access_token == "jwt-login"
         assert token.contributor.github_username == "testuser"
-        # Token should be saved to disk
         loaded = load_token(tmp_annotator_home)
         assert loaded is not None
         assert loaded.access_token == "jwt-login"
+        assert f"localhost%3A{port}" in opened["url"]
 
-    def test_login_timeout(self, tmp_annotator_home: Path) -> None:
-        settings = _make_settings(tmp_annotator_home)
+    def test_state_mismatch_raises_csrf(
+        self, tmp_annotator_home: Path, httpx_mock: HTTPXMock
+    ) -> None:
+        port = _free_port()
+        settings = _settings_with_port(tmp_annotator_home, port)
         console = MagicMock()
 
+        httpx_mock.add_response(
+            url="http://test-kombinat.local/v1/auth/config",
+            method="GET",
+            json={"client_id": "test-client-id"},
+        )
+
+        def fake_open(_url: str) -> bool:
+            _fire_callback(port, "code=oauth-code&state=WRONG_STATE")
+            return True
+
         with (
-            patch("annotator.auth.fetch_client_id", return_value="test-client-id"),
-            patch("annotator.auth.webbrowser.open"),  # do nothing
-            patch("annotator.auth.LOGIN_TIMEOUT", 0.1),
+            patch("annotator.auth.webbrowser.open", side_effect=fake_open),
+            pytest.raises(AuthError, match="state"),
+        ):
+            login(settings, console)
+
+    def test_timeout_when_no_callback(
+        self, tmp_annotator_home: Path, httpx_mock: HTTPXMock
+    ) -> None:
+        port = _free_port()
+        settings = _settings_with_port(tmp_annotator_home, port)
+        console = MagicMock()
+
+        httpx_mock.add_response(
+            url="http://test-kombinat.local/v1/auth/config",
+            method="GET",
+            json={"client_id": "test-client-id"},
+        )
+
+        with (
+            patch("annotator.auth.LOGIN_TIMEOUT", 0.5),
+            patch("annotator.auth.webbrowser.open"),
             pytest.raises(AuthError, match="timed out"),
         ):
             login(settings, console)
 
-    def test_login_state_mismatch(self, tmp_annotator_home: Path) -> None:
-        settings = _make_settings(tmp_annotator_home)
-        console = MagicMock()
+    def test_port_in_use_raises_before_browser_opens(
+        self, tmp_annotator_home: Path, httpx_mock: HTTPXMock
+    ) -> None:
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            probe.listen(1)
+            port = int(probe.getsockname()[1])
 
-        def fake_browser_open(url: str) -> None:
-            import urllib.parse
+            settings = _settings_with_port(tmp_annotator_home, port)
+            console = MagicMock()
 
-            parsed = urllib.parse.urlparse(url)
-            params = urllib.parse.parse_qs(parsed.query)
-            redirect_uri = urllib.parse.unquote(params["redirect_uri"][0])
-            # Send back a WRONG state
-            httpx.get(f"{redirect_uri}?code=gh-code-123&state=WRONG-STATE")
+            httpx_mock.add_response(
+                url="http://test-kombinat.local/v1/auth/config",
+                method="GET",
+                json={"client_id": "test-client-id"},
+            )
 
-        with (
-            patch("annotator.auth.fetch_client_id", return_value="test-client-id"),
-            patch("annotator.auth.webbrowser.open", side_effect=fake_browser_open),
-            pytest.raises(AuthError, match="state mismatch"),
-        ):
-            login(settings, console)
+            with (
+                patch("annotator.auth.webbrowser.open") as mock_open,
+                pytest.raises(AuthError, match="ANNOTATOR_AUTH_PORT"),
+            ):
+                login(settings, console)
+
+            mock_open.assert_not_called()

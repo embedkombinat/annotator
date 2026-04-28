@@ -200,9 +200,20 @@ EEEEE  K   K</div>
     return _Handler
 
 
-def _create_callback_server(auth_event: threading.Event) -> HTTPServer:
-    """Start a local HTTP server on a random port to receive the OAuth callback."""
-    server = HTTPServer(("127.0.0.1", 0), _make_callback_handler(auth_event))
+def _create_callback_server(port: int, auth_event: threading.Event) -> HTTPServer:
+    """Bind a local HTTP server on a fixed port to receive the OAuth callback.
+
+    Pinning the port makes the flow Docker-friendly: `docker run -p 51820:51820`
+    forwards the host browser's redirect into the container. Inside the container
+    or on a native host the UX is the same (browser opens, click authorize, done).
+    """
+    try:
+        server = HTTPServer(("127.0.0.1", port), _make_callback_handler(auth_event))
+    except OSError as exc:
+        raise AuthError(
+            f"Auth callback port {port} is already in use. "
+            "Set ANNOTATOR_AUTH_PORT to a different value."
+        ) from exc
     server.auth_code = None  # type: ignore[attr-defined]
     server.auth_state = None  # type: ignore[attr-defined]
     return server
@@ -216,7 +227,7 @@ def login(settings: Settings, console: Console) -> AuthToken:
 
     state = secrets.token_urlsafe(16)
     auth_event = threading.Event()
-    server = _create_callback_server(auth_event)
+    server = _create_callback_server(settings.auth_port, auth_event)
     port = server.server_address[1]
 
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
