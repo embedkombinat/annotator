@@ -48,14 +48,14 @@ class VLLMEngine(BaseEngine):
     def label_batch(self, pairs: list[LabelingInput]) -> list[LabelingOutput]:
         from vllm import SamplingParams
         from vllm.sampling_params import (  # type: ignore[import-not-found]
-            GuidedDecodingParams,
+            StructuredOutputsParams,
         )
 
-        guided_params = GuidedDecodingParams(json=ANNOTATION_SCHEMA_JSON)
+        structured_params = StructuredOutputsParams(json=ANNOTATION_SCHEMA_JSON)
         sampling_params = SamplingParams(
             temperature=0.0,
             max_tokens=self.max_output_tokens,
-            guided_decoding=guided_params,
+            structured_outputs=structured_params,
         )
 
         conversations = [

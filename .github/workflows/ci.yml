@@ -66,5 +66,8 @@ jobs:
           tags: |
             ghcr.io/embedkombinat/annotator:latest
             ghcr.io/embedkombinat/annotator:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
