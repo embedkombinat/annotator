@@ -201,14 +201,20 @@ EEEEE  K   K</div>
 
 
 def _create_callback_server(port: int, auth_event: threading.Event) -> HTTPServer:
-    """Bind a local HTTP server on a fixed port to receive the OAuth callback.
+    """Bind an HTTP server on a fixed port to receive the OAuth callback.
 
-    Pinning the port makes the flow Docker-friendly: `docker run -p 51820:51820`
-    forwards the host browser's redirect into the container. Inside the container
-    or on a native host the UX is the same (browser opens, click authorize, done).
+    Binds the wildcard address (``0.0.0.0``) rather than ``127.0.0.1`` so the
+    server is reachable through Docker's port forwarding. With
+    ``-p 51820:51820`` the host forwards traffic to the container's bridge
+    interface, not loopback — a server bound to 127.0.0.1 inside the container
+    would never see those packets and login would silently time out.
+
+    The wider bind is acceptable: CSRF is protected by a 16-byte URL-safe
+    ``state`` token (see ``login()``), the server only runs for ~120s during
+    the login flow, and the handler only processes a single GET to ``/callback``.
     """
     try:
-        server = HTTPServer(("127.0.0.1", port), _make_callback_handler(auth_event))
+        server = HTTPServer(("0.0.0.0", port), _make_callback_handler(auth_event))
     except OSError as exc:
         raise AuthError(
             f"Auth callback port {port} is already in use. "
