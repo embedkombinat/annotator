@@ -201,18 +201,18 @@ class TestExchangeCode:
 class TestCallbackServer:
     """Fixed-port callback server: Docker-friendly, configurable, fails clearly when blocked."""
 
-    def test_binds_to_configured_port(self) -> None:
+    def test_binds_to_wildcard_on_configured_port(self) -> None:
         port = _free_port()
         event = threading.Event()
         server = _create_callback_server(port, event)
         try:
-            assert server.server_address == ("127.0.0.1", port)
+            assert server.server_address == ("0.0.0.0", port)
         finally:
             server.server_close()
 
     def test_port_in_use_raises_clear_error(self) -> None:
         with socket.socket() as probe:
-            probe.bind(("127.0.0.1", 0))
+            probe.bind(("0.0.0.0", 0))
             probe.listen(1)
             port = int(probe.getsockname()[1])
 
@@ -360,7 +360,7 @@ class TestLogin:
         self, tmp_annotator_home: Path, httpx_mock: HTTPXMock
     ) -> None:
         with socket.socket() as probe:
-            probe.bind(("127.0.0.1", 0))
+            probe.bind(("0.0.0.0", 0))
             probe.listen(1)
             port = int(probe.getsockname()[1])
 
