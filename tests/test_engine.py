@@ -53,7 +53,7 @@ def mock_vllm() -> MagicMock:
     mock_sampling = MagicMock()
     mock_mod.SamplingParams = MagicMock()
     mock_mod.LLM = MagicMock()
-    mock_sampling.GuidedDecodingParams = MagicMock()
+    mock_sampling.StructuredOutputsParams = MagicMock()
 
     with patch.dict(
         sys.modules,
