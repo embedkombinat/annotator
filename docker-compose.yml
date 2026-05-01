@@ -9,10 +9,6 @@ services:
               count: 1
               capabilities: [gpu]
     env_file: .env
-    ports:
-      # OAuth callback — keeps the same port the in-container server binds to
-      # so the host browser's redirect can reach it during `annotator login`.
-      - "51820:51820"
     volumes:
       # `~` doesn't expand on Windows; use ${HOME-${USERPROFILE}} which falls back
       # to USERPROFILE on Windows when HOME isn't set.
