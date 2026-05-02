@@ -44,7 +44,7 @@ The **annotator** is a headless labeling worker that runs on contributor hardwar
 
 ### How it works
 
-1. **Authenticate** via GitHub OAuth — your browser opens, click authorize, done (works in Docker with `-p 51820:51820`)
+1. **Authenticate** via GitHub Device Flow — the CLI prints a short code, you enter it at `https://github.com/login/device` on any browser (laptop, phone, anywhere). Works on remote SSH'd hosts (Runpod, Lambda, EC2) and inside Docker without any port forwarding.
 2. **Detect hardware** — NVIDIA GPU, Apple Silicon, or CPU-only
 3. **Download & load** the best-fit LLM for your hardware from HuggingFace
 4. **Claim → Label → Submit** in streaming micro-batches (lose at most one chunk on interrupt)

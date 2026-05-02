@@ -27,7 +27,6 @@ class Settings(BaseSettings):
     )
 
     kombinat_url: str = "https://kombinat-production.up.railway.app"
-    auth_port: int = 51820
 
     batch_size: int = 100
     chunk_size: int = 50

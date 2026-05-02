@@ -1,13 +1,9 @@
-"""Tests for auth.py — token storage, OAuth web flow, fixed-port callback server."""
+"""Tests for auth.py — token storage and the GitHub Device Flow."""
 
 from __future__ import annotations
 
-import http.client
 import os
-import socket
 import stat
-import threading
-import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
@@ -18,12 +14,13 @@ import pytest
 from annotator.auth import (
     AuthToken,
     ContributorInfo,
-    _create_callback_server,
     delete_token,
-    exchange_code,
+    exchange_github_token,
     fetch_client_id,
     load_token,
     login,
+    poll_for_access_token,
+    request_device_code,
     save_token,
 )
 from annotator.config import Settings
@@ -33,6 +30,11 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from pytest_httpx import HTTPXMock
+
+
+GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code"
+GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+KOMBINAT_DEVICE_AUTH_URL = "http://test.local/v1/auth/github-device"
 
 
 def _make_token(
@@ -48,13 +50,6 @@ def _make_token(
             github_avatar_url="https://github.com/octocat.png",
         ),
     )
-
-
-def _free_port() -> int:
-    """Pick a port that's free right now. Tests must bind quickly to avoid races."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
 
 
 class TestTokenStorage:
@@ -152,15 +147,125 @@ class TestFetchClientId:
                 fetch_client_id("http://test.local")
 
 
-KOMBINAT_AUTH_URL = "http://test.local/v1/auth/github"
+class TestRequestDeviceCode:
+    """`request_device_code` POSTs to /login/device/code and returns the parsed payload."""
+
+    def test_returns_device_data(self, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(
+            url=GITHUB_DEVICE_CODE_URL,
+            method="POST",
+            json={
+                "device_code": "abc",
+                "user_code": "1234-WXYZ",
+                "verification_uri": "https://github.com/login/device",
+                "expires_in": 900,
+                "interval": 5,
+            },
+        )
+        data = request_device_code("test-client-id")
+        assert data["device_code"] == "abc"
+        assert data["user_code"] == "1234-WXYZ"
+        assert data["interval"] == 5
+
+    def test_missing_fields_raises_helpful_error(self, httpx_mock: HTTPXMock) -> None:
+        """Partial payload usually means the OAuth app doesn't have Device Flow enabled."""
+        httpx_mock.add_response(
+            url=GITHUB_DEVICE_CODE_URL,
+            method="POST",
+            json={"error": "device_flow_disabled"},
+        )
+        with pytest.raises(AuthError, match="Device Flow"):
+            request_device_code("test-client-id")
+
+    def test_non_200_raises(self, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(
+            url=GITHUB_DEVICE_CODE_URL,
+            method="POST",
+            status_code=500,
+            text="boom",
+        )
+        with pytest.raises(AuthError, match="500"):
+            request_device_code("test-client-id")
+
+    def test_unreachable_raises(self) -> None:
+        with patch("annotator.auth.httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__ = lambda s: s
+            mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+            mock_cls.return_value.post.side_effect = httpx.ConnectError("refused")
+            with pytest.raises(AuthError, match="could not reach GitHub"):
+                request_device_code("test-client-id")
 
 
-class TestExchangeCode:
-    """The web-flow code exchange POSTs `{code, state}` to /v1/auth/github."""
+class TestPollForAccessToken:
+    """Polling loop returns the token, retrying on transient errors."""
+
+    def test_returns_token_on_first_poll(self, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(
+            url=GITHUB_TOKEN_URL,
+            method="POST",
+            json={"access_token": "gho_x", "token_type": "bearer"},
+        )
+        with patch("annotator.auth.MIN_POLL_INTERVAL", 0.0):
+            token = poll_for_access_token("client-id", "device-code", interval=0.0, expires_in=10.0)
+        assert token == "gho_x"
+
+    def test_retries_on_authorization_pending(self, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(
+            url=GITHUB_TOKEN_URL, method="POST", json={"error": "authorization_pending"}
+        )
+        httpx_mock.add_response(url=GITHUB_TOKEN_URL, method="POST", json={"access_token": "gho_y"})
+        with patch("annotator.auth.MIN_POLL_INTERVAL", 0.0):
+            token = poll_for_access_token("c", "d", interval=0.0, expires_in=10.0)
+        assert token == "gho_y"
+
+    def test_slow_down_then_success(self, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(url=GITHUB_TOKEN_URL, method="POST", json={"error": "slow_down"})
+        httpx_mock.add_response(url=GITHUB_TOKEN_URL, method="POST", json={"access_token": "gho_z"})
+        with patch("annotator.auth.MIN_POLL_INTERVAL", 0.0):
+            token = poll_for_access_token("c", "d", interval=0.0, expires_in=10.0)
+        assert token == "gho_z"
+
+    def test_access_denied_raises(self, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(
+            url=GITHUB_TOKEN_URL, method="POST", json={"error": "access_denied"}
+        )
+        with (
+            patch("annotator.auth.MIN_POLL_INTERVAL", 0.0),
+            pytest.raises(AuthError, match="denied"),
+        ):
+            poll_for_access_token("c", "d", interval=0.0, expires_in=10.0)
+
+    def test_expired_token_raises(self, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(
+            url=GITHUB_TOKEN_URL, method="POST", json={"error": "expired_token"}
+        )
+        with (
+            patch("annotator.auth.MIN_POLL_INTERVAL", 0.0),
+            pytest.raises(AuthError, match="expired"),
+        ):
+            poll_for_access_token("c", "d", interval=0.0, expires_in=10.0)
+
+    def test_unexpected_error_raises(self, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(
+            url=GITHUB_TOKEN_URL, method="POST", json={"error": "something_weird"}
+        )
+        with (
+            patch("annotator.auth.MIN_POLL_INTERVAL", 0.0),
+            pytest.raises(AuthError, match="unexpected error"),
+        ):
+            poll_for_access_token("c", "d", interval=0.0, expires_in=10.0)
+
+    def test_timeout_raises_when_deadline_passed(self) -> None:
+        with pytest.raises(AuthError, match="timed out"):
+            poll_for_access_token("c", "d", interval=5.0, expires_in=0.0)
+
+
+class TestExchangeGithubToken:
+    """`exchange_github_token` POSTs the GitHub access token to kombinat /v1/auth/github-device."""
 
     def test_returns_auth_token_on_success(self, httpx_mock: HTTPXMock) -> None:
         httpx_mock.add_response(
-            url=KOMBINAT_AUTH_URL,
+            url=KOMBINAT_DEVICE_AUTH_URL,
             method="POST",
             json={
                 "access_token": "jwt-xyz",
@@ -172,211 +277,97 @@ class TestExchangeCode:
                 },
             },
         )
-        token = exchange_code("oauth-code", "csrf-state", "http://test.local")
+        token = exchange_github_token("gho_mock", "http://test.local")
         assert token.access_token == "jwt-xyz"
         assert token.contributor.github_username == "octocat"
         assert token.contributor.id == "uuid-1"
         assert token.kombinat_url == "http://test.local"
 
     def test_401_raises_rejected(self, httpx_mock: HTTPXMock) -> None:
-        httpx_mock.add_response(
-            url=KOMBINAT_AUTH_URL,
-            method="POST",
-            status_code=401,
-        )
+        httpx_mock.add_response(url=KOMBINAT_DEVICE_AUTH_URL, method="POST", status_code=401)
         with pytest.raises(AuthError, match="rejected"):
-            exchange_code("bad-code", "state", "http://test.local")
+            exchange_github_token("gho_bad", "http://test.local")
 
     def test_500_raises_with_status(self, httpx_mock: HTTPXMock) -> None:
         httpx_mock.add_response(
-            url=KOMBINAT_AUTH_URL,
-            method="POST",
-            status_code=500,
-            text="boom",
+            url=KOMBINAT_DEVICE_AUTH_URL, method="POST", status_code=500, text="boom"
         )
         with pytest.raises(AuthError, match="500"):
-            exchange_code("code", "state", "http://test.local")
-
-
-class TestCallbackServer:
-    """Fixed-port callback server: Docker-friendly, configurable, fails clearly when blocked."""
-
-    def test_binds_to_wildcard_on_configured_port(self) -> None:
-        port = _free_port()
-        event = threading.Event()
-        server = _create_callback_server(port, event)
-        try:
-            assert server.server_address == ("0.0.0.0", port)
-        finally:
-            server.server_close()
-
-    def test_port_in_use_raises_clear_error(self) -> None:
-        with socket.socket() as probe:
-            probe.bind(("0.0.0.0", 0))
-            probe.listen(1)
-            port = int(probe.getsockname()[1])
-
-            event = threading.Event()
-            with pytest.raises(AuthError, match="ANNOTATOR_AUTH_PORT"):
-                _create_callback_server(port, event)
-
-    def test_callback_captures_code_and_state(self) -> None:
-        port = _free_port()
-        event = threading.Event()
-        server = _create_callback_server(port, event)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-            conn.request("GET", "/callback?code=abc123&state=xyz789")
-            resp = conn.getresponse()
-            resp.read()
-            conn.close()
-
-            assert resp.status == 200
-            assert event.wait(timeout=2)
-            assert server.auth_code == "abc123"  # type: ignore[attr-defined]
-            assert server.auth_state == "xyz789"  # type: ignore[attr-defined]
-        finally:
-            server.shutdown()
-            thread.join(timeout=2)
-
-
-def _settings_with_port(home: Path, port: int) -> Settings:
-    return Settings(
-        annotator_home=home,
-        kombinat_url="http://test-kombinat.local",
-        auth_port=port,
-    )
-
-
-def _fire_callback(port: int, query: str, delay: float = 0.1) -> threading.Thread:
-    """Fire a fake OAuth redirect at the in-process callback server, after a brief delay."""
-
-    def _send() -> None:
-        time.sleep(delay)
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("GET", f"/callback?{query}")
-        conn.getresponse().read()
-        conn.close()
-
-    thread = threading.Thread(target=_send, daemon=True)
-    thread.start()
-    return thread
+            exchange_github_token("gho_x", "http://test.local")
 
 
 class TestLogin:
-    def test_full_flow_uses_fixed_port_and_saves_token(
+    """End-to-end device flow: config → device code → poll → kombinat exchange → save."""
+
+    def test_full_flow_persists_token(
         self, tmp_annotator_home: Path, httpx_mock: HTTPXMock
     ) -> None:
-        port = _free_port()
-        settings = _settings_with_port(tmp_annotator_home, port)
-        console = MagicMock()
-
         httpx_mock.add_response(
             url="http://test-kombinat.local/v1/auth/config",
             method="GET",
             json={"client_id": "test-client-id"},
         )
         httpx_mock.add_response(
-            url="http://test-kombinat.local/v1/auth/github",
+            url=GITHUB_DEVICE_CODE_URL,
             method="POST",
             json={
-                "access_token": "jwt-login",
+                "device_code": "abc",
+                "user_code": "1234-WXYZ",
+                "verification_uri": "https://github.com/login/device",
+                "expires_in": 900,
+                "interval": 5,
+            },
+        )
+        httpx_mock.add_response(
+            url=GITHUB_TOKEN_URL, method="POST", json={"access_token": "gho_token"}
+        )
+        httpx_mock.add_response(
+            url="http://test-kombinat.local/v1/auth/github-device",
+            method="POST",
+            json={
+                "access_token": "jwt-xyz",
                 "expires_in": 604800,
                 "contributor": {
-                    "id": "uuid-login",
-                    "github_username": "testuser",
+                    "id": "uuid-1",
+                    "github_username": "octocat",
                     "github_avatar_url": None,
                 },
             },
         )
-
-        opened: dict[str, str] = {}
-
-        def fake_open(url: str) -> bool:
-            opened["url"] = url
-            from urllib.parse import parse_qs, urlparse
-
-            qs = parse_qs(urlparse(url).query)
-            state = qs["state"][0]
-            _fire_callback(port, f"code=oauth-code&state={state}")
-            return True
-
-        with patch("annotator.auth.webbrowser.open", side_effect=fake_open):
+        settings = Settings(
+            kombinat_url="http://test-kombinat.local",
+            annotator_home=tmp_annotator_home,
+        )
+        console = MagicMock()
+        with (
+            patch("annotator.auth.MIN_POLL_INTERVAL", 0.0),
+            patch("annotator.auth.webbrowser.open"),
+        ):
             token = login(settings, console)
 
-        assert token.access_token == "jwt-login"
-        assert token.contributor.github_username == "testuser"
+        assert token.contributor.github_username == "octocat"
         loaded = load_token(tmp_annotator_home)
         assert loaded is not None
-        assert loaded.access_token == "jwt-login"
-        assert f"localhost%3A{port}" in opened["url"]
+        assert loaded.access_token == "jwt-xyz"
 
-    def test_state_mismatch_raises_csrf(
+    def test_propagates_device_flow_disabled_error(
         self, tmp_annotator_home: Path, httpx_mock: HTTPXMock
     ) -> None:
-        port = _free_port()
-        settings = _settings_with_port(tmp_annotator_home, port)
-        console = MagicMock()
-
+        """When the OAuth app doesn't have Device Flow enabled, login surfaces a clear error."""
         httpx_mock.add_response(
             url="http://test-kombinat.local/v1/auth/config",
             method="GET",
             json={"client_id": "test-client-id"},
         )
-
-        def fake_open(_url: str) -> bool:
-            _fire_callback(port, "code=oauth-code&state=WRONG_STATE")
-            return True
-
-        with (
-            patch("annotator.auth.webbrowser.open", side_effect=fake_open),
-            pytest.raises(AuthError, match="state"),
-        ):
-            login(settings, console)
-
-    def test_timeout_when_no_callback(
-        self, tmp_annotator_home: Path, httpx_mock: HTTPXMock
-    ) -> None:
-        port = _free_port()
-        settings = _settings_with_port(tmp_annotator_home, port)
-        console = MagicMock()
-
         httpx_mock.add_response(
-            url="http://test-kombinat.local/v1/auth/config",
-            method="GET",
-            json={"client_id": "test-client-id"},
+            url=GITHUB_DEVICE_CODE_URL,
+            method="POST",
+            json={"error": "device_flow_disabled"},
         )
-
-        with (
-            patch("annotator.auth.LOGIN_TIMEOUT", 0.5),
-            patch("annotator.auth.webbrowser.open"),
-            pytest.raises(AuthError, match="timed out"),
-        ):
+        settings = Settings(
+            kombinat_url="http://test-kombinat.local",
+            annotator_home=tmp_annotator_home,
+        )
+        console = MagicMock()
+        with pytest.raises(AuthError, match="Device Flow"):
             login(settings, console)
-
-    def test_port_in_use_raises_before_browser_opens(
-        self, tmp_annotator_home: Path, httpx_mock: HTTPXMock
-    ) -> None:
-        with socket.socket() as probe:
-            probe.bind(("0.0.0.0", 0))
-            probe.listen(1)
-            port = int(probe.getsockname()[1])
-
-            settings = _settings_with_port(tmp_annotator_home, port)
-            console = MagicMock()
-
-            httpx_mock.add_response(
-                url="http://test-kombinat.local/v1/auth/config",
-                method="GET",
-                json={"client_id": "test-client-id"},
-            )
-
-            with (
-                patch("annotator.auth.webbrowser.open") as mock_open,
-                pytest.raises(AuthError, match="ANNOTATOR_AUTH_PORT"),
-            ):
-                login(settings, console)
-
-            mock_open.assert_not_called()

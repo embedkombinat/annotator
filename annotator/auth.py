@@ -1,17 +1,26 @@
-"""GitHub OAuth web flow and token management."""
+"""GitHub OAuth Device Flow and token management.
+
+Why device flow: the previous web-flow design ran a localhost callback server
+inside the CLI process, then handed GitHub a `redirect_uri=http://localhost:PORT/callback`
+URI. That works on a single machine where browser and server are colocated
+(your laptop), but breaks the moment the CLI runs on a remote host the user
+SSH'd into (Runpod, Lambda, EC2, etc.) — the user's browser hits localhost
+on *their machine*, not the remote one. The device flow has no callback at
+all: the CLI prints a short user code, the user enters it in any browser on
+any device, the CLI polls GitHub directly. Same auth, no machine-boundary
+assumption.
+"""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
-import secrets
 import stat
-import threading
-import urllib.parse
+import time
 import webbrowser
 from datetime import UTC, datetime, timedelta
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from pydantic import BaseModel
@@ -27,9 +36,11 @@ if TYPE_CHECKING:
     from annotator.config import Settings
 
 AUTH_FILE = "auth.json"
-GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
+DEVICE_CODE_URL = "https://github.com/login/device/code"
+TOKEN_URL = "https://github.com/login/oauth/access_token"
+DEFAULT_SCOPE = "read:user"
 EXPIRY_BUFFER = timedelta(minutes=5)
-LOGIN_TIMEOUT = 120.0
+MIN_POLL_INTERVAL = 5.0
 
 
 class ContributorInfo(BaseModel):
@@ -92,16 +103,90 @@ def fetch_client_id(kombinat_url: str) -> str:
     return client_id
 
 
-def exchange_code(code: str, state: str, kombinat_url: str) -> AuthToken:
-    """Exchange a GitHub OAuth code+state for a kombinat JWT."""
-    with httpx.Client() as client:
-        resp = client.post(
-            f"{kombinat_url}/v1/auth/github",
-            json={"code": code, "state": state},
-            timeout=30.0,
+def request_device_code(client_id: str) -> dict[str, Any]:
+    """Ask GitHub for a device code + user code. Returns the full response payload."""
+    try:
+        with httpx.Client() as client:
+            resp = client.post(
+                DEVICE_CODE_URL,
+                data={"client_id": client_id, "scope": DEFAULT_SCOPE},
+                headers={"Accept": "application/json"},
+                timeout=10.0,
+            )
+    except httpx.HTTPError as exc:
+        raise AuthError(f"could not reach GitHub: {exc}") from exc
+    if resp.status_code != 200:
+        raise AuthError(f"device code request failed: {resp.status_code} {resp.text}")
+    data: dict[str, Any] = resp.json()
+    required = {"device_code", "user_code", "verification_uri", "expires_in", "interval"}
+    if not required.issubset(data):
+        raise AuthError(
+            "device code response is missing required fields. "
+            "This usually means the OAuth app does not have Device Flow enabled — "
+            "check 'Enable Device Flow' in the OAuth app settings on GitHub."
         )
+    return data
+
+
+def poll_for_access_token(
+    client_id: str,
+    device_code: str,
+    interval: float,
+    expires_in: float,
+) -> str:
+    """Poll GitHub's token endpoint until the user authorizes. Returns the access token."""
+    deadline = time.monotonic() + expires_in
+    poll_interval = max(interval, MIN_POLL_INTERVAL)
+
+    while time.monotonic() < deadline:
+        time.sleep(poll_interval)
+        try:
+            with httpx.Client() as client:
+                resp = client.post(
+                    TOKEN_URL,
+                    data={
+                        "client_id": client_id,
+                        "device_code": device_code,
+                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                    },
+                    headers={"Accept": "application/json"},
+                    timeout=10.0,
+                )
+        except httpx.HTTPError as exc:
+            raise AuthError(f"polling GitHub failed: {exc}") from exc
+
+        data = resp.json()
+        if "access_token" in data:
+            return str(data["access_token"])
+
+        error = data.get("error")
+        if error == "authorization_pending":
+            continue
+        if error == "slow_down":
+            poll_interval += 5.0
+            continue
+        if error == "expired_token":
+            raise AuthError("device code expired before authorization completed")
+        if error == "access_denied":
+            raise AuthError("authorization was denied")
+        raise AuthError(f"unexpected error during device flow: {data}")
+
+    raise AuthError(f"device flow timed out after {expires_in:.0f}s")
+
+
+def exchange_github_token(github_access_token: str, kombinat_url: str) -> AuthToken:
+    """Exchange a GitHub access token for a kombinat JWT."""
+    try:
+        with httpx.Client() as client:
+            resp = client.post(
+                f"{kombinat_url}/v1/auth/github-device",
+                json={"access_token": github_access_token},
+                timeout=30.0,
+            )
+    except httpx.HTTPError as exc:
+        raise AuthError(f"could not reach kombinat at {kombinat_url}: {exc}") from exc
     if resp.status_code == 401:
-        raise AuthError("kombinat rejected the GitHub code (invalid or expired)")
+        raise AuthError("kombinat rejected the GitHub access token")
     if resp.status_code != 200:
         raise AuthError(f"kombinat auth failed: {resp.status_code} {resp.text}")
     data = resp.json()
@@ -119,160 +204,33 @@ def exchange_code(code: str, state: str, kombinat_url: str) -> AuthToken:
     )
 
 
-def _make_callback_handler(auth_event: threading.Event) -> type[BaseHTTPRequestHandler]:
-    """Create an HTTP request handler that captures OAuth callback parameters."""
-
-    class _Handler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
-            parsed = urllib.parse.urlparse(self.path)
-            params = urllib.parse.parse_qs(parsed.query)
-
-            self.server.auth_code = params.get("code", [None])[0]  # type: ignore[attr-defined]
-            self.server.auth_state = params.get("state", [None])[0]  # type: ignore[attr-defined]
-
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html")
-            self.end_headers()
-            body = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Embed Kombinat — Authenticated</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-    background: #0a0a0a;
-    color: #e0e0e0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-  }
-  .card {
-    text-align: center;
-    border: 1px solid #2dd4bf33;
-    border-radius: 12px;
-    padding: 48px 56px;
-    background: #111;
-    box-shadow: 0 0 40px #2dd4bf11;
-  }
-  .logo {
-    font-size: 28px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    line-height: 1.3;
-    white-space: pre;
-    color: #2dd4bf;
-    margin-bottom: 24px;
-  }
-  h2 {
-    font-size: 20px;
-    font-weight: 600;
-    color: #fff;
-    margin-bottom: 8px;
-  }
-  p {
-    font-size: 14px;
-    color: #888;
-  }
-</style>
-</head>
-<body>
-<div class="card">
-  <div class="logo">EEEEE  K   K
-E      K  K
-EEEE   KKK
-E      K  K
-EEEEE  K   K</div>
-  <h2>Authentication successful</h2>
-  <p>You can close this tab and return to the terminal.</p>
-</div>
-</body>
-</html>"""
-            self.wfile.write(body.encode())
-            auth_event.set()
-
-        def log_message(self, format: str, *args: object) -> None:  # noqa: A002
-            pass  # suppress HTTP server logging
-
-    return _Handler
-
-
-def _create_callback_server(port: int, auth_event: threading.Event) -> HTTPServer:
-    """Bind an HTTP server on a fixed port to receive the OAuth callback.
-
-    Binds the wildcard address (``0.0.0.0``) rather than ``127.0.0.1`` so the
-    server is reachable through Docker's port forwarding. With
-    ``-p 51820:51820`` the host forwards traffic to the container's bridge
-    interface, not loopback — a server bound to 127.0.0.1 inside the container
-    would never see those packets and login would silently time out.
-
-    The wider bind is acceptable: CSRF is protected by a 16-byte URL-safe
-    ``state`` token (see ``login()``), the server only runs for ~120s during
-    the login flow, and the handler only processes a single GET to ``/callback``.
-    """
-    try:
-        server = HTTPServer(("0.0.0.0", port), _make_callback_handler(auth_event))
-    except OSError as exc:
-        raise AuthError(
-            f"Auth callback port {port} is already in use. "
-            "Set ANNOTATOR_AUTH_PORT to a different value."
-        ) from exc
-    server.auth_code = None  # type: ignore[attr-defined]
-    server.auth_state = None  # type: ignore[attr-defined]
-    return server
-
-
 def login(settings: Settings, console: Console) -> AuthToken:
-    """Run the full login flow: open browser -> local server captures callback -> exchange."""
+    """Run the GitHub Device Flow and exchange the access token for a kombinat JWT."""
     console.print("  No credentials found. Starting login...\n")
 
     client_id = fetch_client_id(settings.kombinat_url)
+    device_data = request_device_code(client_id)
 
-    state = secrets.token_urlsafe(16)
-    auth_event = threading.Event()
-    server = _create_callback_server(settings.auth_port, auth_event)
-    port = server.server_address[1]
+    user_code = device_data["user_code"]
+    verification_uri = device_data["verification_uri"]
+    device_code = device_data["device_code"]
+    interval = float(device_data["interval"])
+    expires_in = float(device_data["expires_in"])
 
-    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
+    console.print(f"  -> Open in any browser: [bold]{verification_uri}[/bold]")
+    console.print(f"  -> Enter code: [bold {TEAL}]{user_code}[/bold {TEAL}]\n")
 
-    try:
-        redirect_uri = f"http://localhost:{port}/callback"
-        authorize_url = (
-            f"{GITHUB_AUTHORIZE_URL}"
-            f"?client_id={client_id}"
-            f"&redirect_uri={urllib.parse.quote(redirect_uri, safe='')}"
-            f"&state={state}"
-            f"&scope=read:user"
-        )
+    # Best-effort browser open as a convenience on machines that have one;
+    # silently a no-op on headless hosts (Runpod, etc.) which is the whole
+    # point of the device flow.
+    with contextlib.suppress(Exception):
+        webbrowser.open(verification_uri)
 
-        console.print("  [bold]-> Opening browser for GitHub authorization...[/bold]")
-        console.print(f"  -> {authorize_url}\n")
-        webbrowser.open(authorize_url)
-        console.print("  -> Waiting for authorization...\n")
+    console.print("  -> Waiting for authorization...\n")
 
-        if not auth_event.wait(timeout=LOGIN_TIMEOUT):
-            raise AuthError(
-                f"Login timed out — no callback received within {LOGIN_TIMEOUT:.0f} seconds"
-            )
+    github_token = poll_for_access_token(client_id, device_code, interval, expires_in)
+    token = exchange_github_token(github_token, settings.kombinat_url)
+    save_token(token, settings.annotator_home)
 
-        code = server.auth_code  # type: ignore[attr-defined]
-        callback_state = server.auth_state  # type: ignore[attr-defined]
-
-        if callback_state != state:
-            raise AuthError("OAuth state mismatch — possible CSRF attack")
-        if not code:
-            raise AuthError("No authorization code received")
-
-        token = exchange_code(code, state, settings.kombinat_url)
-        save_token(token, settings.annotator_home)
-
-        console.print(
-            f"  [{TEAL}]\u2713[/{TEAL}] Authenticated as {token.contributor.github_username}"
-        )
-        return token
-    finally:
-        server.shutdown()
+    console.print(f"  [{TEAL}]✓[/{TEAL}] Authenticated as {token.contributor.github_username}")
+    return token

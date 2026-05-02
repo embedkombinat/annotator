@@ -15,7 +15,6 @@ COPY annotator/ ./annotator/
 RUN pip install --no-cache-dir .
 
 ENV HF_HOME=/root/.annotator/models
-ENV ANNOTATOR_AUTH_PORT=51820
 
 ENTRYPOINT ["annotator"]
 CMD []
