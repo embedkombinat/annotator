@@ -1,12 +1,12 @@
 [project]
-name = "test-ann"
+name = "embedkombinat-annotator"
 dynamic = ["version"]
-description = "Distributed annotation worker for EmbedKombinat"
+description = "Distributed annotation worker for embedkombinat"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.12"
 authors = [
-    { name = "EmbedKombinat" },
+    { name = "embedkombinat" },
 ]
 keywords = ["annotation", "labeling", "llm", "embedding", "distributed"]
 classifiers = [
@@ -45,7 +45,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://embedkombinat.github.io/embed-kombinat.github.io/index.html"
+Homepage = "https://embedkombinat.github.io"
 Repository = "https://github.com/embedkombinat/annotator"
 Issues = "https://github.com/embedkombinat/annotator/issues"
 

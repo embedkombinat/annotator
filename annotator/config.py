@@ -26,6 +26,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # Override with ANNOTATOR_KOMBINAT_URL for local dev against a non-production hub.
     kombinat_url: str = "https://kombinat-production.up.railway.app"
 
     batch_size: int = 100

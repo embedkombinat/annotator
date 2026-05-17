@@ -1,4 +1,4 @@
-"""Distributed annotation worker for EmbedKombinat."""
+"""Distributed annotation worker for embedkombinat."""
 
 __version__ = "0.2.0"
 
