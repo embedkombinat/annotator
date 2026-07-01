@@ -146,3 +146,19 @@ class TestResolveOverrides:
             rt = resolve(gpu_memory_utilization=0.3)
         # 24 * 0.3 = 7.2 < 8.0 (7B AWQ) but >= 4.0 (3B AWQ)
         assert rt.model_spec.model_id == "Qwen/Qwen2.5-3B-Instruct-AWQ"
+
+
+class TestBackendAlias:
+    def test_cpu_alias_maps_to_llama_cpp(self) -> None:
+        """The CLI/docs advertise --backend cpu; the registry key is llama_cpp."""
+        from unittest.mock import patch
+
+        from annotator.resolver import resolve
+
+        with (
+            patch("annotator.resolver._detect_nvidia", return_value=None),
+            patch("annotator.resolver._detect_apple_silicon", return_value=None),
+        ):
+            runtime = resolve(override_backend="cpu")
+        assert runtime.backend == "llama_cpp"
+        assert runtime.model_spec.backend == "llama_cpp"

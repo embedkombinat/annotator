@@ -105,7 +105,9 @@ The annotator auto-selects the best model for your hardware. You can override wi
 | `mlx-community/Qwen2.5-3B-Instruct-4bit` | 4-bit | 4 GB | 2 GB |
 | `mlx-community/Qwen2.5-1.5B-Instruct-4bit` | 4-bit | 2 GB | 1 GB |
 
-### CPU (llama.cpp)
+### CPU (llama.cpp) — not yet implemented
+
+> The llama.cpp backend is currently a stub ([`annotator/engine/llama_cpp.py`](annotator/engine/llama_cpp.py)); `--backend cpu` will exit with a "not yet implemented" error. The planned model lineup:
 
 | Model | Quantization | Download |
 |-------|:---:|:---:|
@@ -129,7 +131,7 @@ Options (run):
   --quantization TEXT          Override quantization
   --backend [vllm|mlx|cpu]    Override backend
   --gpu-memory-utilization FLOAT  GPU fraction (default: 0.9)
-  --dry-run                    Resolve hardware & model, then exit
+  --dry-run                    Label one chunk locally, then exit without submitting
 ```
 
 ## Leaderboard
