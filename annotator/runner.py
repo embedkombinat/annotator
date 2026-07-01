@@ -140,7 +140,7 @@ class AnnotatorRunner:
                         f"Check project status.[/{AMBER}]"
                     )
                 self._console.print(f"  [dim]No pairs available. Waiting {wait:.0f}s...[/dim]")
-                time.sleep(wait)
+                self._wait_interruptible(wait)
                 continue
 
             backoff.reset()
@@ -226,6 +226,20 @@ class AnnotatorRunner:
 
         self._release_active_batch()
         return ExitCode.SUCCESS
+
+    def _wait_interruptible(self, seconds: float) -> None:
+        """Sleep in one-second slices so a shutdown signal ends the wait promptly.
+
+        A plain time.sleep(600) resumes after the signal handler returns
+        (PEP 475), so Ctrl-C would appear ignored for the rest of the
+        no-pairs backoff wait.
+        """
+        deadline = time.monotonic() + seconds
+        while not self._shutdown_requested:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(1.0, remaining))
 
     def _release_active_batch(self) -> None:
         """Best-effort release of any in-flight batch back to the pool."""

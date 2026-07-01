@@ -293,3 +293,73 @@ def _trigger_shutdown(runner: AnnotatorRunner):  # type: ignore[no-untyped-def]
         runner._shutdown_requested = True
 
     return side_effect
+
+
+class TestRunnerTruncation:
+    def test_long_documents_truncated_before_engine(self, tmp_annotator_home: Path) -> None:
+        """Documents longer than the context budget are truncated in the
+        labeling inputs — an overlong prompt makes vLLM raise mid-batch."""
+        settings = _make_settings(tmp_annotator_home)
+        _make_token(tmp_annotator_home)
+        console = Console(quiet=True)
+        runner = AnnotatorRunner(settings, console)
+
+        long_doc = "x" * 200_000
+        batch = BatchResponse(
+            batch_id="batch-long",
+            expires_at=datetime.now(tz=UTC) + timedelta(hours=24),
+            pairs=[PairData(pair_id="p0", query_text="q0", doc_text=long_doc)],
+        )
+
+        seen_docs: list[str] = []
+
+        def capture(pairs: list[LabelingInput]) -> list[LabelingOutput]:
+            seen_docs.extend(p.doc_text for p in pairs)
+            return [_make_output(p.pair_id) for p in pairs]
+
+        mock_engine = _make_mock_engine()
+        mock_engine.label_batch.side_effect = capture
+
+        mock_client = MagicMock()
+        mock_client.claim_batch.side_effect = [batch, None]
+        mock_client.submit_annotations.return_value = AnnotationResult(accepted=1, rejected=0)
+
+        with (
+            patch("annotator.runner.resolve") as mock_resolve,
+            patch("annotator.runner.create_engine", return_value=mock_engine),
+            patch("annotator.runner.KombinatClient", return_value=mock_client),
+            patch("annotator.runner.time.sleep", side_effect=_trigger_shutdown(runner)),
+        ):
+            mock_resolve.return_value = MagicMock(
+                gpu_name="Test GPU",
+                gpu_vram_gb=24.0,
+                backend="vllm",
+                model_spec=MagicMock(model_id="test-model"),
+            )
+            code = runner.run()
+
+        assert code == ExitCode.SUCCESS
+        assert len(seen_docs) == 1
+        assert len(seen_docs[0]) < len(long_doc)
+        assert seen_docs[0].endswith("[TRUNCATED]")
+
+
+class TestInterruptibleWait:
+    def test_wait_exits_promptly_on_shutdown(self, tmp_annotator_home: Path) -> None:
+        """The no-pairs backoff wait must notice a shutdown request instead of
+        sleeping out the full duration (up to 600s)."""
+        settings = _make_settings(tmp_annotator_home)
+        console = Console(quiet=True)
+        runner = AnnotatorRunner(settings, console)
+
+        sleep_calls: list[float] = []
+
+        def fake_sleep(seconds: float) -> None:
+            sleep_calls.append(seconds)
+            runner._shutdown_requested = True
+
+        with patch("annotator.runner.time.sleep", side_effect=fake_sleep):
+            runner._wait_interruptible(600.0)
+
+        # One slice at most after the flag was set — not one 600s sleep
+        assert sleep_calls == [1.0]
