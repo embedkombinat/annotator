@@ -142,3 +142,29 @@ class TestTruncateDocument:
         query = "a" * 1000
         result = truncate_document(query, "some doc", max_chars=100)
         assert result == ""
+
+
+class TestComputeMaxUserChars:
+    def test_leaves_room_for_output_and_system_prompt(self) -> None:
+        from annotator.labeler import CHARS_PER_TOKEN, SYSTEM_PROMPT, compute_max_user_chars
+
+        budget = compute_max_user_chars(max_model_len=4096, max_output_tokens=256)
+        assert budget > 0
+        # User chars + system prompt chars must fit under the context in the
+        # conservative chars/token estimate
+        total_tokens = budget // CHARS_PER_TOKEN + len(SYSTEM_PROMPT) // CHARS_PER_TOKEN + 256
+        assert total_tokens < 4096
+
+    def test_tiny_context_yields_zero(self) -> None:
+        from annotator.labeler import compute_max_user_chars
+
+        assert compute_max_user_chars(max_model_len=128, max_output_tokens=256) == 0
+
+    def test_truncated_doc_respects_budget(self) -> None:
+        from annotator.labeler import format_user_message, truncate_document
+
+        query = "what is rust"
+        doc = "y" * 50_000
+        max_chars = 1_000
+        truncated = truncate_document(query, doc, max_chars)
+        assert len(format_user_message(query, truncated)) <= max_chars

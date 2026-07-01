@@ -22,6 +22,7 @@ from annotator.config import ExitCode
 from annotator.engine import create_engine
 from annotator.engine.base import LabelingInput
 from annotator.errors import AuthError, KombinatError, ResolverError
+from annotator.labeler import compute_max_user_chars, truncate_document
 from annotator.resolver import resolve
 
 if TYPE_CHECKING:
@@ -36,6 +37,11 @@ logger = logging.getLogger(__name__)
 class AnnotatorRunner:
     def __init__(self, settings: Settings, console: Console) -> None:
         self._settings = settings
+        # Documents must be truncated to fit the engine context window; an
+        # overlong prompt makes vLLM raise mid-batch and crashes the run.
+        self._max_user_chars = compute_max_user_chars(
+            settings.max_model_len, settings.max_output_tokens
+        )
         self._console = console
         self._shutdown_requested = False
         self._last_signal_time = 0.0
@@ -168,7 +174,11 @@ class AnnotatorRunner:
                     chunk_end = min(chunk_start + chunk_size, pairs_in_batch)
                     chunk_pairs = [
                         LabelingInput(
-                            pair_id=p.pair_id, query_text=p.query_text, doc_text=p.doc_text
+                            pair_id=p.pair_id,
+                            query_text=p.query_text,
+                            doc_text=truncate_document(
+                                p.query_text, p.doc_text, self._max_user_chars
+                            ),
                         )
                         for p in batch.pairs[chunk_start:chunk_end]
                     ]

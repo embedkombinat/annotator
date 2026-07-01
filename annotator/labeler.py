@@ -74,16 +74,36 @@ def compute_hash(raw_text: str) -> str:
     return f"sha256:{hashlib.sha256(raw_text.encode()).hexdigest()}"
 
 
+# Conservative chars/token lower bound for English text: underestimating can
+# only make prompts shorter than the budget, never overflow the context.
+CHARS_PER_TOKEN = 3
+# Slack for the chat template (role markers, generation prompt, etc.)
+PROMPT_TOKEN_MARGIN = 64
+
+TRUNCATION_SUFFIX = "\n[TRUNCATED]"
+
+
+def compute_max_user_chars(max_model_len: int, max_output_tokens: int) -> int:
+    """Character budget for the user message so the full chat prompt
+    (system + user + template) fits in max_model_len with room left
+    for max_output_tokens of generation."""
+    system_tokens = len(SYSTEM_PROMPT) // CHARS_PER_TOKEN + 1
+    budget_tokens = max_model_len - max_output_tokens - system_tokens - PROMPT_TOKEN_MARGIN
+    return max(budget_tokens, 0) * CHARS_PER_TOKEN
+
+
 def truncate_document(query: str, doc: str, max_chars: int) -> str:
-    """Truncate document from the end if the combined prompt exceeds max_chars.
+    """Truncate document from the end if the combined user message exceeds max_chars.
 
     Query is never truncated. Returns the (possibly truncated) document.
     """
-    # Account for the XML tags and system prompt overhead
+    # Account for the XML tags wrapping query and document
     overhead = len("<query></query>\n<document></document>") + len(query)
     available = max_chars - overhead
     if available <= 0:
         return ""
     if len(doc) <= available:
         return doc
-    return doc[:available] + "\n[TRUNCATED]"
+    if available <= len(TRUNCATION_SUFFIX):
+        return doc[:available]
+    return doc[: available - len(TRUNCATION_SUFFIX)] + TRUNCATION_SUFFIX
