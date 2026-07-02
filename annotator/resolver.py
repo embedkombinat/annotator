@@ -34,6 +34,8 @@ class ResolvedRuntime(BaseModel):
     backend: str
 
 
+# Order matters: _select_model picks the FIRST spec whose min_vram_gb fits,
+# so keep each backend's list sorted largest/most-capable first.
 REGISTRY: dict[str, list[ModelSpec]] = {
     "vllm": [
         ModelSpec(

@@ -81,6 +81,8 @@ annotator run
 
 ### Docker (NVIDIA)
 
+The image is built on `vllm/vllm-openai` and only supports NVIDIA GPUs — Apple Silicon users should use the pip install above.
+
 ```bash
 docker compose up
 ```
