@@ -46,7 +46,7 @@ Typer CLI with polymorphic inference backends. Heavy modules (vllm, mlx_lm, llam
 - `annotator/engine/` — `BaseEngine` ABC with `load()` and `label_batch()`. Implementations: `VLLMEngine` (guided JSON decoding, batch), `MLXEngine` (sequential), `LlamaCppEngine` (stub)
 - `annotator/labeler.py` — Prompt template (system + user with XML-wrapped query/doc), JSON response parsing, SHA256 hashing
 - `annotator/client.py` — HTTPX client with exponential backoff (3 retries for 5xx, increasing wait on 204 no-pairs)
-- `annotator/auth.py` — GitHub OAuth web flow with a fixed-port (`ANNOTATOR_AUTH_PORT`, default `51820`) localhost callback server, token persisted to `~/.annotator/auth.json`
+- `annotator/auth.py` — GitHub OAuth Device Flow (CLI prints a user code, polls GitHub for the token; no callback server, works on headless/SSH hosts), kombinat JWT persisted to `~/.annotator/auth.json` with `0600` permissions
 
 ### Key conventions
 

@@ -22,6 +22,7 @@ from annotator.config import ExitCode
 from annotator.engine import create_engine
 from annotator.engine.base import LabelingInput
 from annotator.errors import AuthError, KombinatError, ResolverError
+from annotator.labeler import compute_max_user_chars, truncate_document
 from annotator.resolver import resolve
 
 if TYPE_CHECKING:
@@ -36,6 +37,11 @@ logger = logging.getLogger(__name__)
 class AnnotatorRunner:
     def __init__(self, settings: Settings, console: Console) -> None:
         self._settings = settings
+        # Documents must be truncated to fit the engine context window; an
+        # overlong prompt makes vLLM raise mid-batch and crashes the run.
+        self._max_user_chars = compute_max_user_chars(
+            settings.max_model_len, settings.max_output_tokens
+        )
         self._console = console
         self._shutdown_requested = False
         self._last_signal_time = 0.0
@@ -134,7 +140,7 @@ class AnnotatorRunner:
                         f"Check project status.[/{AMBER}]"
                     )
                 self._console.print(f"  [dim]No pairs available. Waiting {wait:.0f}s...[/dim]")
-                time.sleep(wait)
+                self._wait_interruptible(wait)
                 continue
 
             backoff.reset()
@@ -168,7 +174,11 @@ class AnnotatorRunner:
                     chunk_end = min(chunk_start + chunk_size, pairs_in_batch)
                     chunk_pairs = [
                         LabelingInput(
-                            pair_id=p.pair_id, query_text=p.query_text, doc_text=p.doc_text
+                            pair_id=p.pair_id,
+                            query_text=p.query_text,
+                            doc_text=truncate_document(
+                                p.query_text, p.doc_text, self._max_user_chars
+                            ),
                         )
                         for p in batch.pairs[chunk_start:chunk_end]
                     ]
@@ -216,6 +226,20 @@ class AnnotatorRunner:
 
         self._release_active_batch()
         return ExitCode.SUCCESS
+
+    def _wait_interruptible(self, seconds: float) -> None:
+        """Sleep in one-second slices so a shutdown signal ends the wait promptly.
+
+        A plain time.sleep(600) resumes after the signal handler returns
+        (PEP 475), so Ctrl-C would appear ignored for the rest of the
+        no-pairs backoff wait.
+        """
+        deadline = time.monotonic() + seconds
+        while not self._shutdown_requested:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(1.0, remaining))
 
     def _release_active_batch(self) -> None:
         """Best-effort release of any in-flight batch back to the pool."""
