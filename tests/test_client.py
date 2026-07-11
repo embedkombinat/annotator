@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -68,6 +69,36 @@ class TestClaimBatch:
         assert batch is not None
         assert batch.batch_id == "batch-123"
         assert len(batch.pairs) == 2
+        client.close()
+
+    def test_model_id_sent_in_payload(self, httpx_mock: HTTPXMock) -> None:
+        """claim_batch forwards the labeling model so kombinat can steer
+        pairs this model's family hasn't annotated (judge diversity)."""
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/batches/claim",
+            json=BATCH_RESPONSE,
+        )
+        client = KombinatClient(BASE_URL, TOKEN)
+        client.claim_batch(100, model_id="mistralai/Mistral-7B-Instruct-v0.3")
+        request = httpx_mock.get_requests()[-1]
+        assert json.loads(request.content) == {
+            "size": 100,
+            "model_id": "mistralai/Mistral-7B-Instruct-v0.3",
+        }
+        client.close()
+
+    def test_model_id_omitted_when_not_set(self, httpx_mock: HTTPXMock) -> None:
+        """Without a model_id the payload stays exactly as before."""
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/batches/claim",
+            json=BATCH_RESPONSE,
+        )
+        client = KombinatClient(BASE_URL, TOKEN)
+        client.claim_batch(100)
+        request = httpx_mock.get_requests()[-1]
+        assert json.loads(request.content) == {"size": 100}
         client.close()
 
     def test_no_pairs(self, httpx_mock: HTTPXMock) -> None:

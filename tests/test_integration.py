@@ -121,7 +121,7 @@ class TestFullCycle:
                 ["--batch-size", "200"],
             )
 
-        mock_client.claim_batch.assert_any_call(200)
+        mock_client.claim_batch.assert_any_call(200, model_id="test-model")
 
 
 class TestLoginCommand:

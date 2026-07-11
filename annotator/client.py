@@ -102,9 +102,17 @@ class KombinatClient:
             timeout=httpx.Timeout(30.0, connect=10.0),
         )
 
-    def claim_batch(self, size: int = 100) -> BatchResponse | None:
-        """Claim a batch of pairs. Returns None if no pairs available (204)."""
-        resp = self._request_with_retry("POST", "/v1/batches/claim", json={"size": size})
+    def claim_batch(self, size: int = 100, model_id: str | None = None) -> BatchResponse | None:
+        """Claim a batch of pairs. Returns None if no pairs available (204).
+
+        model_id tells kombinat which model will label the batch so it can
+        steer pairs this model's family hasn't annotated yet (judge
+        diversity). Servers that predate the field simply ignore it.
+        """
+        payload: dict[str, object] = {"size": size}
+        if model_id:
+            payload["model_id"] = model_id
+        resp = self._request_with_retry("POST", "/v1/batches/claim", json=payload)
         if resp.status_code == 204:
             return None
         return BatchResponse.model_validate(resp.json())

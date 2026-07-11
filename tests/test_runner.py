@@ -363,3 +363,35 @@ class TestInterruptibleWait:
 
         # One slice at most after the flag was set — not one 600s sleep
         assert sleep_calls == [1.0]
+
+
+class TestClaimCarriesModelId:
+    def test_claim_reports_engine_model(self, tmp_annotator_home: Path) -> None:
+        """The runner tells kombinat which model labels the batch (judge-
+        diversity steering)."""
+        settings = _make_settings(tmp_annotator_home)
+        _make_token(tmp_annotator_home)
+        console = Console(quiet=True)
+        runner = AnnotatorRunner(settings, console)
+
+        mock_engine = _make_mock_engine()
+        mock_client = MagicMock()
+        mock_client.claim_batch.side_effect = [_make_batch(2), None]
+        mock_client.submit_annotations.return_value = AnnotationResult(accepted=2, rejected=0)
+
+        with (
+            patch("annotator.runner.resolve") as mock_resolve,
+            patch("annotator.runner.create_engine", return_value=mock_engine),
+            patch("annotator.runner.KombinatClient", return_value=mock_client),
+            patch("annotator.runner.time.sleep", side_effect=_trigger_shutdown(runner)),
+        ):
+            mock_resolve.return_value = MagicMock(
+                gpu_name="Test GPU",
+                gpu_vram_gb=24.0,
+                backend="vllm",
+                model_spec=MagicMock(model_id="test-model"),
+            )
+            code = runner.run()
+
+        assert code == ExitCode.SUCCESS
+        mock_client.claim_batch.assert_called_with(100, model_id="test-model")
