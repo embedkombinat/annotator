@@ -146,3 +146,57 @@ class TestResolveOverrides:
             rt = resolve(gpu_memory_utilization=0.3)
         # 24 * 0.3 = 7.2 < 8.0 (7B AWQ) but >= 4.0 (3B AWQ)
         assert rt.model_spec.model_id == "Qwen/Qwen2.5-3B-Instruct-AWQ"
+
+
+class TestModelDiversity:
+    def test_registry_has_multiple_families_per_gpu_backend(self) -> None:
+        """Consensus needs judges from more than one model family; the registry
+        must offer alternatives to the Qwen defaults on GPU backends."""
+        from annotator.resolver import REGISTRY
+
+        for backend in ("vllm", "mlx"):
+            families = {spec.model_id.split("/")[-1].split("-")[0] for spec in REGISTRY[backend]}
+            assert len(families) >= 2, f"{backend} registry has a single model family"
+
+    def test_auto_selection_unchanged_by_alternatives(self) -> None:
+        """Alternative families are opt-in: auto-pick still resolves the Qwen
+        defaults at every VRAM tier."""
+        with (
+            patch("annotator.resolver._detect_nvidia", return_value=("RTX 3090", 24.0)),
+            _NO_APPLE,
+        ):
+            rt = resolve()
+        assert rt.model_spec.model_id == "Qwen/Qwen2.5-7B-Instruct"
+
+    def test_override_model_uses_registry_spec(self) -> None:
+        """--model with a registry id picks up the real spec (VRAM floor,
+        quantization), not a zeroed pass-through spec."""
+        with (
+            patch("annotator.resolver._detect_nvidia", return_value=("RTX 3090", 24.0)),
+            _NO_APPLE,
+        ):
+            rt = resolve(override_model="mistralai/Mistral-7B-Instruct-v0.3")
+        assert rt.model_spec.min_vram_gb == 18.0
+        assert rt.model_spec.download_gb == 14.5
+        assert rt.model_spec.quantization is None
+
+    def test_override_model_with_quantization_bypasses_registry(self) -> None:
+        """Explicit --quantization keeps the pass-through spec even for
+        registry model ids."""
+        with (
+            patch("annotator.resolver._detect_nvidia", return_value=("RTX 3090", 24.0)),
+            _NO_APPLE,
+        ):
+            rt = resolve(
+                override_model="mistralai/Mistral-7B-Instruct-v0.3",
+                override_quantization="awq",
+            )
+        assert rt.model_spec.quantization == "awq"
+        assert rt.model_spec.min_vram_gb == 0
+
+    def test_find_registry_model(self) -> None:
+        from annotator.resolver import find_registry_model
+
+        assert find_registry_model("vllm", "microsoft/Phi-3.5-mini-instruct") is not None
+        assert find_registry_model("vllm", "not/a-model") is None
+        assert find_registry_model("nope", "microsoft/Phi-3.5-mini-instruct") is None

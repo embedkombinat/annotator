@@ -60,6 +60,29 @@ REGISTRY: dict[str, list[ModelSpec]] = {
             backend="vllm",
             revision="main",
         ),
+        # Alternative model families below the Qwen defaults: never auto-picked
+        # (first-fit selection stops at the Qwen tiers above), opt-in via
+        # `--model`. Running a different family than the fleet default makes a
+        # second annotation on the same pair an independent measurement instead
+        # of a deterministic re-run — see `annotator models`.
+        # Ungated on HuggingFace (no token needed); Llama/Gemma are gated and
+        # therefore excluded.
+        ModelSpec(
+            model_id="mistralai/Mistral-7B-Instruct-v0.3",
+            quantization=None,
+            min_vram_gb=18.0,
+            download_gb=14.5,
+            backend="vllm",
+            revision="main",
+        ),
+        ModelSpec(
+            model_id="microsoft/Phi-3.5-mini-instruct",
+            quantization=None,
+            min_vram_gb=10.0,
+            download_gb=7.7,
+            backend="vllm",
+            revision="main",
+        ),
     ],
     "mlx": [
         ModelSpec(
@@ -83,6 +106,23 @@ REGISTRY: dict[str, list[ModelSpec]] = {
             quantization="4bit",
             min_vram_gb=2.0,
             download_gb=1.0,
+            backend="mlx",
+            revision="main",
+        ),
+        # Alternative families (opt-in via --model, never auto-picked)
+        ModelSpec(
+            model_id="mlx-community/Mistral-7B-Instruct-v0.3-4bit",
+            quantization="4bit",
+            min_vram_gb=6.0,
+            download_gb=4.1,
+            backend="mlx",
+            revision="main",
+        ),
+        ModelSpec(
+            model_id="mlx-community/Phi-3.5-mini-instruct-4bit",
+            quantization="4bit",
+            min_vram_gb=4.0,
+            download_gb=2.2,
             backend="mlx",
             revision="main",
         ),
@@ -155,6 +195,11 @@ def _detect_apple_silicon() -> tuple[str, float] | None:
     return (chip_name, memory_gb)
 
 
+def find_registry_model(backend: str, model_id: str) -> ModelSpec | None:
+    """Look up a model_id in the registry for the given backend."""
+    return next((m for m in REGISTRY.get(backend, []) if m.model_id == model_id), None)
+
+
 def _select_model(backend: str, available_vram_gb: float) -> ModelSpec:
     """Select the best model that fits available memory."""
     models = REGISTRY.get(backend, [])
@@ -209,14 +254,20 @@ def resolve(
 
     # Select model
     if override_model:
-        model_spec = ModelSpec(
-            model_id=override_model,
-            quantization=override_quantization,
-            min_vram_gb=0,
-            download_gb=0,
-            backend=backend,
-            revision="main",
-        )
+        # A --model that names a registry entry uses that entry's real spec
+        # (quantization, VRAM floor); anything else is passed through as-is.
+        registry_spec = find_registry_model(backend, override_model)
+        if registry_spec is not None and override_quantization is None:
+            model_spec = registry_spec
+        else:
+            model_spec = ModelSpec(
+                model_id=override_model,
+                quantization=override_quantization,
+                min_vram_gb=0,
+                download_gb=0,
+                backend=backend,
+                revision="main",
+            )
     else:
         effective_vram = (gpu_vram_gb or 0) * gpu_memory_utilization
         model_spec = _select_model(backend, effective_vram)

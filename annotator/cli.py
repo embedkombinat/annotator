@@ -132,3 +132,66 @@ def logout() -> None:
     settings = Settings()
     auth.delete_token(settings.annotator_home)
     console.print(f"  [{TEAL}]\u2713[/{TEAL}] Logged out.")
+
+
+@app.command()
+def models(
+    backend: Annotated[
+        str | None,
+        typer.Option("--backend", help="Show models for this backend instead of auto-detecting"),
+    ] = None,
+) -> None:
+    """List supported models for your hardware.
+
+    The first fitting entry is what auto-selection picks; the rest can be
+    chosen with --model. Running a different model family than the fleet
+    default makes your labels an independent second opinion on each pair
+    instead of a deterministic re-run of the same judge.
+    """
+    from rich.table import Table
+
+    from annotator.resolver import REGISTRY, _detect_apple_silicon, _detect_nvidia
+
+    console = Console()
+
+    gpu_vram_gb: float | None = None
+    if backend is None:
+        nvidia = _detect_nvidia()
+        apple = _detect_apple_silicon()
+        if nvidia:
+            backend = "vllm"
+            _, gpu_vram_gb = nvidia
+        elif apple:
+            backend = "mlx"
+            _, gpu_vram_gb = apple
+        else:
+            backend = "llama_cpp"
+
+    specs = REGISTRY.get(backend, [])
+    if not specs:
+        console.print(f"  [{AMBER}]No models registered for backend '{backend}'.[/{AMBER}]")
+        raise typer.Exit(code=ExitCode.NO_COMPATIBLE_HARDWARE)
+
+    auto_pick = next(
+        (m for m in specs if gpu_vram_gb is not None and m.min_vram_gb <= gpu_vram_gb * 0.9),
+        None,
+    )
+
+    table = Table(title=f"Models for backend: {backend}")
+    table.add_column("Model (use with --model)")
+    table.add_column("Quant", justify="center")
+    table.add_column("Min VRAM", justify="right")
+    table.add_column("Download", justify="right")
+    table.add_column("", justify="center")
+
+    for spec in specs:
+        fits = gpu_vram_gb is None or spec.min_vram_gb <= gpu_vram_gb * 0.9
+        marker = "auto" if spec is auto_pick else ("" if fits else "won't fit")
+        table.add_row(
+            spec.model_id,
+            spec.quantization or "\u2014",
+            f"{spec.min_vram_gb:.0f} GB" if spec.min_vram_gb else "\u2014",
+            f"{spec.download_gb:.1f} GB" if spec.download_gb else "\u2014",
+            marker,
+        )
+    console.print(table)

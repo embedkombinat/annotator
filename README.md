@@ -87,23 +87,29 @@ docker compose up
 
 ## Supported Models
 
-The annotator auto-selects the best model for your hardware. You can override with `--model` and `--backend`.
+The annotator auto-selects the best model for your hardware. You can override with `--model` and `--backend`, and list everything available for your machine with `annotator models`.
+
+> **Why run a non-default model?** Every pair needs two agreeing annotations. When both come from the same model at temperature 0, the second is a deterministic re-run of the first — not an independent opinion. Choosing a different family (Mistral, Phi) makes your labels genuinely add information.
 
 ### NVIDIA GPU (vLLM)
 
-| Model | Quantization | VRAM | Download |
-|-------|:---:|:---:|:---:|
-| `Qwen/Qwen2.5-7B-Instruct` | — | 18 GB | 14 GB |
-| `Qwen/Qwen2.5-7B-Instruct-AWQ` | AWQ | 8 GB | 4.5 GB |
-| `Qwen/Qwen2.5-3B-Instruct-AWQ` | AWQ | 4 GB | 2 GB |
+| Model | Family | Quantization | VRAM | Download |
+|-------|:---:|:---:|:---:|:---:|
+| `Qwen/Qwen2.5-7B-Instruct` (auto) | Qwen | — | 18 GB | 14 GB |
+| `Qwen/Qwen2.5-7B-Instruct-AWQ` (auto) | Qwen | AWQ | 8 GB | 4.5 GB |
+| `Qwen/Qwen2.5-3B-Instruct-AWQ` (auto) | Qwen | AWQ | 4 GB | 2 GB |
+| `mistralai/Mistral-7B-Instruct-v0.3` | Mistral | — | 18 GB | 14.5 GB |
+| `microsoft/Phi-3.5-mini-instruct` | Phi | — | 10 GB | 7.7 GB |
 
 ### Apple Silicon (MLX)
 
-| Model | Quantization | Memory | Download |
-|-------|:---:|:---:|:---:|
-| `mlx-community/Qwen2.5-7B-Instruct-4bit` | 4-bit | 6 GB | 4 GB |
-| `mlx-community/Qwen2.5-3B-Instruct-4bit` | 4-bit | 4 GB | 2 GB |
-| `mlx-community/Qwen2.5-1.5B-Instruct-4bit` | 4-bit | 2 GB | 1 GB |
+| Model | Family | Quantization | Memory | Download |
+|-------|:---:|:---:|:---:|:---:|
+| `mlx-community/Qwen2.5-7B-Instruct-4bit` (auto) | Qwen | 4-bit | 6 GB | 4 GB |
+| `mlx-community/Qwen2.5-3B-Instruct-4bit` (auto) | Qwen | 4-bit | 4 GB | 2 GB |
+| `mlx-community/Qwen2.5-1.5B-Instruct-4bit` (auto) | Qwen | 4-bit | 2 GB | 1 GB |
+| `mlx-community/Mistral-7B-Instruct-v0.3-4bit` | Mistral | 4-bit | 6 GB | 4.1 GB |
+| `mlx-community/Phi-3.5-mini-instruct-4bit` | Phi | 4-bit | 4 GB | 2.2 GB |
 
 ### CPU (llama.cpp)
 
@@ -120,6 +126,7 @@ Usage: annotator [COMMAND] [OPTIONS]
 Commands:
   run      Start the labeling loop (default)
   login    Authenticate via GitHub
+  models   List supported models for your hardware
   status   Show contributor profile and stats
   logout   Remove stored credentials
 
