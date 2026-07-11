@@ -52,3 +52,20 @@ class TestCLICommands:
         with patch("annotator.auth.delete_token"):
             result = runner.invoke(app, ["logout"])
         assert result.exit_code == 0
+
+
+class TestModelsCommand:
+    def test_models_help(self) -> None:
+        result = runner.invoke(app, ["models", "--help"])
+        assert result.exit_code == 0
+
+    def test_models_lists_registry_for_backend(self) -> None:
+        result = runner.invoke(app, ["models", "--backend", "vllm"])
+        assert result.exit_code == 0
+        assert "Qwen2.5-7B-Instruct" in result.output
+        assert "Mistral-7B-Instruct-v0.3" in result.output
+        assert "Phi-3.5-mini-instruct" in result.output
+
+    def test_models_unknown_backend_errors(self) -> None:
+        result = runner.invoke(app, ["models", "--backend", "nope"])
+        assert result.exit_code != 0
