@@ -49,7 +49,7 @@ def main(
         str | None, typer.Option("--quantization", help="Override quantization (awq, fp16, etc.)")
     ] = None,
     backend: Annotated[
-        str | None, typer.Option("--backend", help="Override backend (vllm, mlx, llama_cpp)")
+        str | None, typer.Option("--backend", help="Override backend (vllm, mlx, cpu)")
     ] = None,
     gpu_memory_utilization: Annotated[
         float, typer.Option("--gpu-memory-utilization", help="GPU memory fraction (vLLM only)")

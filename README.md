@@ -81,6 +81,8 @@ annotator run
 
 ### Docker (NVIDIA)
 
+The image is built on `vllm/vllm-openai` and only supports NVIDIA GPUs — Apple Silicon users should use the pip install above.
+
 ```bash
 docker compose up
 ```
@@ -111,7 +113,9 @@ The annotator auto-selects the best model for your hardware. You can override wi
 | `mlx-community/Mistral-7B-Instruct-v0.3-4bit` | Mistral | 4-bit | 6 GB | 4.1 GB |
 | `mlx-community/Phi-3.5-mini-instruct-4bit` | Phi | 4-bit | 4 GB | 2.2 GB |
 
-### CPU (llama.cpp)
+### CPU (llama.cpp) — not yet implemented
+
+> The llama.cpp backend is currently a stub ([`annotator/engine/llama_cpp.py`](annotator/engine/llama_cpp.py)); `--backend cpu` will exit with a "not yet implemented" error. The planned model lineup:
 
 | Model | Quantization | Download |
 |-------|:---:|:---:|
@@ -136,7 +140,7 @@ Options (run):
   --quantization TEXT          Override quantization
   --backend [vllm|mlx|cpu]    Override backend
   --gpu-memory-utilization FLOAT  GPU fraction (default: 0.9)
-  --dry-run                    Resolve hardware & model, then exit
+  --dry-run                    Label one chunk locally, then exit without submitting
 ```
 
 ## Leaderboard

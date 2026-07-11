@@ -200,3 +200,19 @@ class TestModelDiversity:
         assert find_registry_model("vllm", "microsoft/Phi-3.5-mini-instruct") is not None
         assert find_registry_model("vllm", "not/a-model") is None
         assert find_registry_model("nope", "microsoft/Phi-3.5-mini-instruct") is None
+
+
+class TestBackendAlias:
+    def test_cpu_alias_maps_to_llama_cpp(self) -> None:
+        """The CLI/docs advertise --backend cpu; the registry key is llama_cpp."""
+        from unittest.mock import patch
+
+        from annotator.resolver import resolve
+
+        with (
+            patch("annotator.resolver._detect_nvidia", return_value=None),
+            patch("annotator.resolver._detect_apple_silicon", return_value=None),
+        ):
+            runtime = resolve(override_backend="cpu")
+        assert runtime.backend == "llama_cpp"
+        assert runtime.model_spec.backend == "llama_cpp"

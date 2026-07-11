@@ -34,6 +34,8 @@ class ResolvedRuntime(BaseModel):
     backend: str
 
 
+# Order matters: _select_model picks the FIRST spec whose min_vram_gb fits,
+# so keep each backend's list sorted largest/most-capable first.
 REGISTRY: dict[str, list[ModelSpec]] = {
     "vllm": [
         ModelSpec(
@@ -148,6 +150,9 @@ REGISTRY: dict[str, list[ModelSpec]] = {
 }
 
 
+BACKEND_ALIASES = {"cpu": "llama_cpp"}
+
+
 def _detect_nvidia() -> tuple[str, float] | None:
     """Detect NVIDIA GPU via pynvml. Returns (name, vram_gb) or None."""
     try:
@@ -238,7 +243,8 @@ def resolve(
     apple = _detect_apple_silicon()
 
     if override_backend:
-        backend = override_backend
+        # The CLI and docs advertise "cpu"; the registry/engine key is llama_cpp.
+        backend = BACKEND_ALIASES.get(override_backend, override_backend)
         if nvidia:
             gpu_name, gpu_vram_gb = nvidia
         elif apple:
