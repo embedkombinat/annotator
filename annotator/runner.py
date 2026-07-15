@@ -130,7 +130,9 @@ class AnnotatorRunner:
         engine_info = engine.info()
 
         while not self._shutdown_requested:
-            batch = self._client.claim_batch(batch_size)
+            # Report which model labels this batch so kombinat can steer
+            # pairs our model family hasn't annotated yet (judge diversity)
+            batch = self._client.claim_batch(batch_size, model_id=engine_info.model_id)
             if batch is None:
                 wait = backoff.wait_duration()
                 backoff.record_empty()
